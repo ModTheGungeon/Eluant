@@ -75,9 +75,13 @@ namespace Eluant
         private const string WEAKREFERENCE_METATABLE = "eluant_weakreference";
         private const string OPAQUECLROBJECT_METATABLE = "eluant_opaqueclrobject";
 
+        private const int TRACEBACKERR_MSG_KEY = 0;
+        private const int TRACEBACKERR_TRACE_KEY = 1;
+
         private Dictionary<string, LuaFunction> metamethodCallbacks = new Dictionary<string, LuaFunction>();
 
         private LuaFunction createManagedCallWrapper;
+        private LuaFunction debugTraceback;
 
         private ConcurrentQueue<int> releasedReferences = new ConcurrentQueue<int>();
 
@@ -204,7 +208,7 @@ namespace Eluant
 
             LuaApi.lua_pop(LuaState, 1);
 
-            DoString(Scripts.BindingSupport).Dispose();
+            DoString(Scripts.BindingSupport, traceback: false).Dispose();
 
             createManagedCallWrapper = (LuaFunction)Globals["eluant_create_managed_call_wrapper"];
 
@@ -502,16 +506,17 @@ namespace Eluant
             }
         }
 
-        public LuaVararg DoString(string str)
+        public LuaVararg DoString(string str, bool traceback = true)
         {
             if (str == null) { throw new ArgumentNullException("str"); }
 
             CheckDisposed();
 
+            if (traceback) PushPcallMessageHandler();
             LoadString(str);
-
             // Compiled code is on the stack, now call it.
-            return Call(new LuaValue[0]);
+            var res = Call(new LuaValue[0], traceback);
+            return res;
         }
 
         public LuaFunction CompileString(string str)
@@ -529,26 +534,116 @@ namespace Eluant
             return (LuaFunction)fn;
         }
 
-        internal LuaVararg Call(LuaFunction fn, IList<LuaValue> args)
+        internal LuaVararg Call(LuaFunction fn, IList<LuaValue> args, bool traceback = true)
         {
             if (fn == null) { throw new ArgumentNullException("fn"); }
             if (args == null) { throw new ArgumentNullException("args"); }
 
             CheckDisposed();
 
+            if (traceback) PushPcallMessageHandler();
             Push(fn);
 
-            return Call(args);
+            var res = Call(args, traceback);
+            return res;
         }
 
-        // Calls a function that has already been pushed.  We need this functionality to support DoString().
+        private void PushPcallMessageHandler()
+        {
+            LuaApi.lua_pushcclosure(LuaState, DoTraceback, 0);
+        }
+
+        private const int LEVELS1 = 12;
+        private const int LEVELS2 = 10;
+        private int DoTraceback(IntPtr state)
+        {
+            // if the error message isn't a string, just pass it on
+            if (LuaApi.lua_isstring(state, -1) == 0) return LuaApi.lua_gettop(LuaState);
+            var error = LuaApi.lua_tostring(state, -1);
+            LuaApi.lua_remove(state, -1);
+
+            LuaApi.lua_newtable(state); // t
+
+            LuaApi.lua_pushlightuserdata(LuaState, (IntPtr)GetHashCode()); // k
+            LuaApi.lua_pushboolean(state, 1); // v
+            LuaApi.lua_settable(state, -3); // t[k] = v
+
+            LuaApi.lua_pushnumber(state, TRACEBACKERR_MSG_KEY); // k
+            LuaApi.lua_pushstring(state, error); // v
+            LuaApi.lua_settable(state, -3); // t[k] = v
+
+            LuaApi.lua_pushnumber(state, TRACEBACKERR_TRACE_KEY); // k
+
+            var ar = new LuaApi.lua_Debug();
+            var firstpart = true;
+            int level = 0;
+            var top = LuaApi.lua_gettop(LuaState);
+            bool first_line = false;
+
+            while (LuaApi.lua_getstack(LuaState, level++, ref ar) != 0) {
+                if (level > LEVELS1 && firstpart) {
+                    /* no more than `LEVELS2' more levels? */
+                    if (LuaApi.lua_getstack(LuaState, level + LEVELS2, ref ar) == 0)
+                        level--;  /* keep going */
+                    else {
+                        LuaApi.lua_pushstring(LuaState, "\n\t..."); /* too many levels */
+                        while (LuaApi.lua_getstack(LuaState, level + LEVELS2, ref ar) != 0)  /* find last levels */
+                            level++;
+                    }
+                    firstpart = false;
+                    continue;
+                }
+                if (!first_line) LuaApi.lua_pushstring(LuaState, "\n");
+                first_line = false;
+
+                LuaApi.lua_getinfo(LuaState, "Snl", ref ar);
+
+                LuaApi.lua_pushstring(LuaState, $"{ar.short_src}:");
+                if (ar.currentline > 0) LuaApi.lua_pushstring(LuaState, $"{ar.currentline}:");
+                if (ar.namewhat != null && ar.namewhat.Length > 0 && ar.namewhat[0] != '\0') { /* is there a name? */
+                    LuaApi.lua_pushstring(LuaState, $" in function '{ar.name}'");
+                } else {
+                    if (ar.what[0] == 'm') { /* main? */
+                        LuaApi.lua_pushstring(LuaState, " in main chunk");
+                    } else if (ar.what[0] == 'C' || ar.what [0] == 't') {
+                        LuaApi.lua_pushstring(LuaState, " ?");  /* C function or tail call */
+                    } else {
+                        LuaApi.lua_pushstring(LuaState, $" in function <{ar.short_src}:{ar.linedefined}>");
+                    }
+                }
+                LuaApi.lua_concat(LuaState, LuaApi.lua_gettop(LuaState) - top);
+            }
+            LuaApi.lua_concat(LuaState, LuaApi.lua_gettop(LuaState) - top);
+            // v
+
+            LuaApi.lua_settable(state, -3); // t[k] = v
+
+            return 1;
+        }
+
+        public void Collect()
+        {
+            ProcessReleasedReferences();
+            LuaApi.lua_gc(LuaState, LuaApi.LuaGcOperation.Collect, 0);
+        }
+
+        // Calls a function that has already been pushed (with a message handler that has already been pushed).
+        // We need this functionality to support DoString().
         // Call CheckDisposed() before calling this method!
-        private LuaVararg Call(IList<LuaValue> args)
+        private LuaVararg Call(IList<LuaValue> args, bool traceback)
         {
             if (args == null) { throw new ArgumentNullException("args"); }
 
-            // Top should point to the frame BELOW the function, which should have already been pushed.
+            var left_over_stack_entries_after_pcall = 0;
+            if (traceback) left_over_stack_entries_after_pcall = 1;
+
+            // Top should point to the frame BELOW the function and the message handler,
+            // which should have already been pushed.
             var top = LuaApi.lua_gettop(LuaState) - 1;
+            if (traceback) top -= left_over_stack_entries_after_pcall;
+
+            var msgh_index = traceback ? top + 1 : 0; // LuaApi.lua_gettop(LuaState) - 1
+            // 0 means no error handler
 
             bool needEnterClr = false;
 
@@ -570,19 +665,47 @@ namespace Eluant
 
                 needEnterClr = true;
                 OnEnterLua();
-                if (LuaApi.lua_pcall(LuaState, args.Count, LuaApi.LUA_MULTRET, 0) != 0) {
+
+                var pcall_result = LuaApi.lua_pcall(LuaState, args.Count, LuaApi.LUA_MULTRET, msgh_index);
+                if (pcall_result != 0) {
                     needEnterClr = false;
                     OnEnterClr();
 
-                    // Finally block will take care of popping the error message.
-                    throw new LuaException(LuaApi.lua_tostring(LuaState, -1));
+                    if (LuaApi.lua_istable(LuaState, -1)) { // error is actually a table?
+                        // the special err is identified by a light userdata with a value of this instance's hash code
+                        // to avoid the ability to fake errors from lua
+                        LuaApi.lua_pushlightuserdata(LuaState, (IntPtr)GetHashCode());
+                        LuaApi.lua_gettable(LuaState, -2);
+                        if (!LuaApi.lua_isnil(LuaState, -1)) { // if not nil, it's our error
+                            LuaApi.lua_remove(LuaState, -1);
+
+                            // as a tiny optimization, keys are numbers instead of strings
+                            LuaApi.lua_pushnumber(LuaState, TRACEBACKERR_MSG_KEY);
+                            LuaApi.lua_gettable(LuaState, -2);
+                            var err_message = LuaApi.lua_tostring(LuaState, -1);
+                            LuaApi.lua_remove(LuaState, -1);
+
+                            LuaApi.lua_pushnumber(LuaState, TRACEBACKERR_TRACE_KEY);
+                            LuaApi.lua_gettable(LuaState, -2);
+                            var err_traceback = LuaApi.lua_tostring(LuaState, -1);
+                            LuaApi.lua_remove(LuaState, -1);
+
+                            throw new LuaException(err_message, traceback: err_traceback);
+                        } else { // otherwise just throw
+                            throw new LuaException(LuaApi.lua_tostring(LuaState, -1));
+                        }
+                    } else {
+                        throw new LuaException(LuaApi.lua_tostring(LuaState, -1));
+                    }
+                    // Finally block will take care of popping the error message
+                    // (and the custom error with traceback handler things if necessary).
                 }
                 needEnterClr = false;
                 OnEnterClr();
 
                 // Results are in the stack, last result on the top.
                 var newTop = LuaApi.lua_gettop(LuaState);
-                var nresults = newTop - top;
+                var nresults = newTop - top - left_over_stack_entries_after_pcall;
                 results = new LuaValue[nresults];
 
                 if (nresults > 0) {
@@ -592,7 +715,7 @@ namespace Eluant
                     }
 
                     for (int i = 0; i < nresults; ++i) {
-                        results[i] = Wrap(top + 1 + i);
+                        results[i] = Wrap(top + 1 + left_over_stack_entries_after_pcall + i);
                     }
                 }
 
@@ -700,7 +823,7 @@ namespace Eluant
             PushOpaqueClrObject(new LuaOpaqueClrObject(fn));
             LuaApi.lua_pushcclosure(LuaState, cFunctionCallback, 2);
         }
-        
+
 #if (__IOS__ || MONOTOUCH)
         [MonoTouch.MonoPInvokeCallback(typeof(LuaApi.lua_CFunction))]
 #endif
@@ -947,7 +1070,7 @@ namespace Eluant
             }
 
             var obj = objectReferenceManager.GetReference(reference.Value);
-            
+
             objectReferenceManager.DestroyReference(reference.Value);
 
             if (obj != null) {
@@ -1442,6 +1565,12 @@ namespace Eluant
         {
             private Dictionary<int, T> references = new Dictionary<int, T>();
             private int nextReference = 1;
+
+            public int ReferenceCount {
+                get {
+                    return nextReference - 1;
+                }
+            }
 
             public ObjectReferenceManager() { }
 

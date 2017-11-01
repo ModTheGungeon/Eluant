@@ -83,6 +83,7 @@ namespace Eluant.Tests
             using (var runtime = new LuaRuntime()) {
                 using (var wrapper = runtime.CreateFunctionFromDelegate(thrower)) {
                     runtime.Globals["callback"] = wrapper;
+
                 }
 
                 runtime.DoString("callback()");

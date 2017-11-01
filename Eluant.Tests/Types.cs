@@ -192,7 +192,8 @@ namespace Eluant.Tests
 
                 using (var fn = (LuaFunction)runtime.Globals["fn"]) {
                     using (var results = fn.Call(new LuaCustomClrObject(new MathBindingObject(5)))) {
-                        Console.WriteLine(results[0]);
+                        Assert.IsInstanceOf (typeof (LuaClrObjectReference), results [0]);
+                        Assert.IsInstanceOf (typeof (MathBindingObject), results [0].GetClrObject());
                     }
                 }
             }

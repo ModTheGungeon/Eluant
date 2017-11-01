@@ -41,11 +41,16 @@ namespace Eluant.Tests
             // reference destructions.  This should return the runtime to exactly the same state as it was at the
             // beginning of the test.
             using (var runtime = new MemoryConstrainedLuaRuntime()) {
-                using (var collect = (LuaFunction)runtime.Globals["collectgarbage"]) {
-                    collect.Call().Dispose();
+                using (var collectgarbage = (LuaFunction)runtime.Globals["collectgarbage"]) {
+                    collectgarbage.Call();
+
+                    // we use runtime.Collect directly instead of collectgarbage
+                    // to avoid creating some more memory as a result of calling collectgarbage
+                    // due to the traceback handling
+                    // we could also just call it with 'traceback: false'
 
                     var begin = runtime.MemoryUse;
-
+                    
                     // Stress the GC a bit by creating and disposing tables, in batches of 100.
                     for (int i = 0; i < 1000; ++i) {
                         foreach (var t in Enumerable.Range(1, 100).Select(j => runtime.CreateTable()).ToList()) {
@@ -58,8 +63,7 @@ namespace Eluant.Tests
                         t.Dispose();
                     }
 
-                    collect.Call().Dispose();
-
+                    collectgarbage.Call();
                     Assert.AreEqual(begin, runtime.MemoryUse);
                 }
             }

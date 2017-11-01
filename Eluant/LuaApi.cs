@@ -125,6 +125,19 @@ namespace Eluant
         public static extern int lua_iscfunction(IntPtr L, int index);
 
         [DllImport(LUA_DLL, CallingConvention=LUA_CALLING_CONVENTION)]
+        public static extern int lua_isstring(IntPtr L, int index);
+
+        public static bool lua_istable(IntPtr L, int index)
+        {
+            return lua_type(L, index) == LuaType.Table;
+        }
+
+        public static bool lua_isnil(IntPtr L, int index)
+        {
+            return lua_type(L, index) == LuaType.Nil;
+        }
+
+        [DllImport(LUA_DLL, CallingConvention=LUA_CALLING_CONVENTION)]
         public static extern int lua_lessthan(IntPtr L, int index1, int index2);
 
         public static void lua_newtable(IntPtr L)
@@ -307,6 +320,63 @@ namespace Eluant
 
         [DllImport(LUA_DLL, CallingConvention=LUA_CALLING_CONVENTION)]
         public static extern void luaL_unref(IntPtr L, int t, int r);
+
+        [DllImport(LUA_DLL, CallingConvention=LUA_CALLING_CONVENTION)]
+        public static extern int lua_getstack(IntPtr L, int level, ref lua_Debug ar);
+
+        [DllImport(LUA_DLL, CallingConvention=LUA_CALLING_CONVENTION)]
+        public static extern int lua_getinfo(IntPtr L, [MarshalAs(UnmanagedType.LPStr)] string what, ref lua_Debug ar);
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+        public struct lua_Debug
+        {
+            public int eventCode;
+            IntPtr pname;
+            IntPtr pnamewhat;
+            IntPtr pwhat;
+            IntPtr psource;
+            public int currentline;
+            public int nups;
+            public int linedefined;
+            public int lastlinedefined;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 60)]
+            public string short_src;
+            int i_ci;
+
+            public string name {
+                get {
+                    if (pname == (IntPtr)0) return null;
+                    return Marshal.PtrToStringAnsi(pname);
+                }
+            }
+
+            public string namewhat {
+                get {
+                    if (pnamewhat == (IntPtr)0) return null;
+                    return Marshal.PtrToStringAnsi(pnamewhat);
+                }
+            }
+
+            public string what {
+                get {
+                    if (pwhat == (IntPtr)0) return null;
+                    return Marshal.PtrToStringAnsi(pwhat);
+                }
+            }
+
+            public string source {
+                get {
+                    if (psource == (IntPtr)0) return null;
+                    return Marshal.PtrToStringAnsi(psource);
+                }
+            }
+
+            public new string ToString()
+            {
+                return string.Format("[lua_Debug: name={0}, namewhat={1}, what={2}, source={3} i_ci={4}]", name, namewhat, what, source, i_ci);
+            }
+        }
+
     }
 }
 

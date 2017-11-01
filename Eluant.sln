@@ -24,11 +24,10 @@ Global
 		StartupItem = Eluant\Eluant.csproj
 		Policies = $0
 		$0.TextStylePolicy = $1
-		$1.FileWidth = 120
 		$1.NoTabsAfterNonTabs = True
 		$1.inheritsSet = VisualStudio
 		$1.inheritsScope = text/plain
-		$1.scope = text/x-csharp
+		$1.scope = text/plain
 		$0.CSharpFormattingPolicy = $2
 		$2.IndentSwitchBody = True
 		$2.BeforeMethodDeclarationParentheses = False
@@ -39,6 +38,8 @@ Global
 		$2.inheritsSet = Mono
 		$2.inheritsScope = text/x-csharp
 		$2.scope = text/x-csharp
+		$2.SpaceAfterMethodCallName = False
+		$2.SpacingAfterMethodDeclarationName = False
 		$0.TextStylePolicy = $3
 		$3.NoTabsAfterNonTabs = True
 		$3.inheritsSet = VisualStudio

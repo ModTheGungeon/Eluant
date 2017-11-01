@@ -48,9 +48,15 @@ namespace Eluant
             return "[LuaFunction]";
         }
 
-        public LuaVararg Call(IList<LuaValue> args)
+        public LuaVararg Call(IList<LuaValue> args, bool traceback = true)
         {
-            return Runtime.Call(this, args);
+            return Runtime.Call(this, args, traceback);
+        }
+
+        private static IList<LuaValue> NO_ARGS = new List<LuaValue>();
+        public LuaVararg Call(bool traceback = true)
+        {
+            return Runtime.Call(this, NO_ARGS);
         }
 
         public LuaVararg Call(params LuaValue[] args)

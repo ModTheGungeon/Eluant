@@ -30,9 +30,18 @@ namespace Eluant
 {
     public class LuaException : Exception
     {
-        public LuaException(string message) : base(message) { }
+        public string[] Traceback;
+        public string TracebackString;
+        
+        public LuaException(string message, string traceback = null) : base(message) {
+            TracebackString = traceback;
+            Traceback = traceback?.Split('\n');
+        }
 
-        public LuaException(string message, Exception inner) : base(message, inner) { }
+        public LuaException(string message, Exception inner, string traceback = null) : base(message, inner) {
+            TracebackString = traceback;
+            Traceback = traceback?.Split('\n');
+        }
     }
 }
 
