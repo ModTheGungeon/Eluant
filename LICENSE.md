@@ -1,3 +1,9 @@
+Copyright for portions of this project are held by Chris Howie.
+All other copyright for the fork of this project hosted under the
+ModTheGungeon GitHub organization are Copyright (c) 2017 Zatherz.
+Below is the original text of the licencse, which also applies
+to this forked project.
+
 Copyright (c) 2013 Chris Howie
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
