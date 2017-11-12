@@ -39,10 +39,10 @@ namespace Eluant.Tests
             using (var runtime = new LuaRuntime()) {
                 runtime.DoString("function basic_function(x) return x * 2 + 1 end");
 
-                using (var fn = (LuaFunction)runtime.Globals["basic_function"]) {
+                using (var fn = (LuaFunction)runtime.Globals ["basic_function"]) {
                     using (var result = fn.Call(5)) {
                         Assert.AreEqual(1, result.Count, "result.Count");
-                        Assert.AreEqual(11, result[0].ToNumber(), "result[0]");
+                        Assert.AreEqual(11, result [0].ToNumber(), "result[0]");
                     }
                 }
             }
@@ -56,7 +56,7 @@ namespace Eluant.Tests
 
             using (var runtime = new LuaRuntime()) {
                 using (var wrapper = runtime.CreateFunctionFromDelegate(callback)) {
-                    runtime.Globals["callback"] = wrapper;
+                    runtime.Globals ["callback"] = wrapper;
                 }
 
                 runtime.DoString("callback(42)");
@@ -66,7 +66,7 @@ namespace Eluant.Tests
         }
 
         [Test]
-        [ExpectedException(typeof(LuaException), ExpectedMessage="$TEST$", MatchType=MessageMatch.Contains)]
+        [ExpectedException(typeof(LuaException), ExpectedMessage = "$TEST$", MatchType = MessageMatch.Contains)]
         public void LuaErrorPropagation()
         {
             using (var runtime = new LuaRuntime()) {
@@ -81,7 +81,7 @@ namespace Eluant.Tests
                 try {
                     runtime.DoString("error({a = 1, b = 2, c = 3})");
                 } catch (LuaException e) {
-                    Assert.AreEqual(e.Message, "An error has occured in Lua code.");
+                    Assert.AreEqual(e.Message, "[LuaTable]");
                     Assert.NotNull(e.Value);
                     Assert.IsInstanceOf(typeof(LuaTable), e.Value);
                     var val = (LuaTable)e.Value;
@@ -92,7 +92,8 @@ namespace Eluant.Tests
             }
         }
 
-        public static void Trace(Exception e, bool inner = false) {
+        public static void Trace(Exception e, bool inner = false)
+        {
             if (inner) Console.Write($"INNER EXCEPTION: ");
             Console.WriteLine($"{e.Message}");
 
@@ -107,7 +108,8 @@ namespace Eluant.Tests
             }
         }
 
-        private void DoError(LuaRuntime runtime) {
+        private void DoError(LuaRuntime runtime)
+        {
             runtime.DoString("error({a = true})").Dispose();
         }
 
@@ -132,7 +134,7 @@ namespace Eluant.Tests
                     end
                     test3()");
                 } catch (LuaException e) {
-                    Assert.AreEqual(e.Message, "An error has occured in Lua code.");
+                    Assert.AreEqual(e.Message, "[LuaTable]");
                     Assert.IsInstanceOf<LuaTable>(e.Value);
                     var tab = (LuaTable)e.Value;
                     Assert.AreEqual(tab ["a"].ToBoolean(), true);
@@ -154,7 +156,7 @@ namespace Eluant.Tests
                     local str = extest()
                     print(str.Join(',', {'Hello', ' world!'}, 0, 2))
                 ");
-            }                
+            }
         }
 
         [Test]

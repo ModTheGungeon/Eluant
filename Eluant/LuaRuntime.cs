@@ -738,7 +738,7 @@ namespace Eluant
         {
             var runtime = GetSelf(state, LuaApi.lua_upvalueindex(1));
 
-            string error_msg = "An error has occured in Lua code.";
+            string error_msg = null;
             Exception inner = null;
             LuaValue value = null;
 
@@ -804,10 +804,13 @@ namespace Eluant
                         }
 
                         for (int i = exceptions.Count - 1; i >= 0; i--) {
-                            s.Append(exceptions [i].StackTrace.Replace("  at", "[clr]:"));
-                            if (i != 0) {
-                                s.AppendLine($"\n[rethrow]: inner exception {exceptions [i].GetType()}: {exceptions [i].Message}");
+                            if (i != exceptions.Count - 1) {
+                                if (i == 0) s.AppendLine();
+                                s.AppendLine($"[throw]: inner exception {exceptions [i + 1].GetType()}: {exceptions [i + 1].Message}");
+                            } else if (i != 0) {
+                                s.AppendLine($"[throw]: exception {exceptions [i - 1].GetType()}");
                             }
+                            s.Append(exceptions [i].StackTrace.Replace("  at", "[clr]:"));
                         }
 
                         stacktrace_fragment = s.ToString();
@@ -816,8 +819,7 @@ namespace Eluant
                     }
                     trace = trace.Substring(0, pos) + stacktrace_fragment + trace.Substring(pos + CLR_STACKTRACE_NONLUA_PLACEHOLDER.Length);
                 }
-
-                var ex = new LuaException(error_msg, null, value, trace);
+                var ex = new LuaException(error_msg, runtime.ExceptionMode == LuaExceptionMode.SingleSpliced ? null : inner, value, trace);
                 runtime.PushCustomClrObject(new LuaTransparentClrObject(ex));
             }
 

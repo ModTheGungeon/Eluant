@@ -104,10 +104,22 @@ namespace Eluant
 
         public LuaException(string message, string traceback = null) : this(message, null, null, traceback) { }
 
-        public LuaException(string message, Exception inner, LuaValue value = null, string traceback = null) : base(message, inner) {
+        public LuaException(string message, Exception inner, LuaValue value = null, string traceback = null) : base(value?.ToString() ?? message, inner) {
             tracebackString = traceback;
             tracebackHashCode = 0;
             Value = value;
+        }
+
+        public override string ToString()
+        {
+            var s = new StringBuilder();
+            s.Append(GetType().FullName).Append(": ").Append(Message);
+            if (Value != null) s.Append(" [").Append(Value.ToString()).Append("]");
+            s.AppendLine();
+            for (int i = 0; i < TracebackArray.Length; i++) {
+                s.Append("  ").AppendLine(TracebackArray [i]);
+            }
+            return s.ToString();
         }
     }
 }
