@@ -73,7 +73,7 @@ namespace Eluant.Tests
                     obj.c = 'foo'
                     obj.e = 'bar'
 
-                    return { a=old_a, n=obj.square(4), o=obj.sqr(5) }
+                    return { a=old_a, n=obj.square(obj, 4), o=obj.sqr(obj, 5) }
                 ";
 
                 using (var result = runtime.DoString(script)) {

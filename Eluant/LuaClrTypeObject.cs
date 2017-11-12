@@ -201,7 +201,7 @@ namespace Eluant
                     if (members.Count == 1) {
                         var method = members [0] as MethodInfo;
                         if (method != null) {
-                            return runtime.CreateFunctionFromMethodWrapper(new LuaRuntime.MethodWrapper(type, method));
+                            return runtime.CreateFunctionFromMethodWrapper(new LuaRuntime.MethodWrapper(type, method, @static: true));
                         }
 
 

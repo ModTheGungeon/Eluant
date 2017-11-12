@@ -82,6 +82,13 @@ namespace Eluant
             // inaccurate information (unlikely, but might happen as a result of a bug).
         }
 
+        public enum LuaMethodMode {
+            PassSelf,
+            // requires you to pass self as the first argument (colon syntax)
+            PassJustArgs
+            // does not require you to pass self as the first argument (standard dot syntax)
+        }
+
         private ObjectReferenceManager<LuaClrObjectValue> objectReferenceManager = new ObjectReferenceManager<LuaClrObjectValue>();
 
         // Separate field for the corner case where customAllocator was collected first.
@@ -89,6 +96,7 @@ namespace Eluant
         private LuaAllocator customAllocator;
 
         public LuaExceptionMode ExceptionMode = LuaExceptionMode.SingleSpliced;
+        public LuaMethodMode MethodMode = LuaMethodMode.PassSelf;
 
 
         // The below constants are used for making the tracebacks pretty.
@@ -1599,7 +1607,6 @@ namespace Eluant
         private int MakeManagedCall(IntPtr state, MethodWrapper wrapper)
         {
             var toDispose = new List<IDisposable>();
-
             try {
                 // As with Call(), we are crossing a Lua<->CLR boundary, so release any references that have been 
                 // queued to be released.
@@ -1615,19 +1622,40 @@ namespace Eluant
                 var parms = wrapper.Method.GetParameters();
 
                 object[] args;
+                object target = null;
+
+                var uses_self_arg = MethodMode == LuaMethodMode.PassSelf && !wrapper.IsDelegate && !wrapper.IsStatic;
 
                 LuaValue wrapped;
 
                 if (parms.Length == 1 && parms[0].ParameterType == typeof(LuaVararg)) {
+                    if (uses_self_arg) {
+                        var luaType = LuaApi.lua_type(state, 1);
+
+                        var ptype = wrapper.Method.DeclaringType;
+
+                        if (LuaApi.lua_type(state, 1) != LuaApi.LuaType.Userdata) {
+                            throw new LuaException(string.Format("Argument self: Expected a {0}, got a non-userdata. Did you mean to run something:something(a, b, c) but instead ran something.something(a, b, c)?", ptype));
+                        }
+
+                        var obj = Wrap(1);
+                        if (!ptype.IsAssignableFrom(obj.CLRMappedType)) {
+                            throw new LuaException(string.Format("Argument self: Expected a {0}, got a {1}. Did you mean to run something:something(a, b, c) but instead ran something.something(a, b, c)?", ptype, obj.CLRMappedType));
+                        }
+
+                        target = obj.CLRMappedObject;
+                        toDispose.Add(obj);
+                    }
+
                     // Special case: wrap all arguments into a vararg.
                     //
                     // We still use toDispose instead of disposing the vararg later, because any exception thrown from
                     // Wrap() could leak some objects.  It's safer to add the wrapped objects to toDisposed as we
                     // create them to prevent this possibility.
-                    var varargs = new LuaValue[nargs];
+                    var varargs = new LuaValue[nargs - 1];
 
-                    for (int i = 0; i < nargs; ++i) {
-                        varargs[i] = wrapped = Wrap(i + 1);
+                    for (int i = 1; i < nargs; ++i) {
+                        varargs[i - 1] = wrapped = Wrap(i + 1);
                         toDispose.Add(wrapped);
                     }
 
@@ -1636,12 +1664,35 @@ namespace Eluant
                     // block will take care of that.)
                     args = new object[] { new LuaVararg(varargs, true) };
                 } else {
+                    if (uses_self_arg) {
+                        if (nargs >= 1) {
+                            var ptype = wrapper.Method.DeclaringType;
+
+                            if (LuaApi.lua_type(state, 1) != LuaApi.LuaType.Userdata) {
+                                throw new LuaException(string.Format("Argument self: Expected a {0}, got a non-userdata. Did you mean to run something:something(a, b, c) but instead ran something.something(a, b, c)?", ptype));
+                            }
+
+                            var obj = Wrap(1);
+                            if (!ptype.IsAssignableFrom(obj.CLRMappedType)) {
+                                throw new LuaException(string.Format("Argument self: Expected a {0}, got a {1}. Did you mean to run something:something(a, b, c) but instead ran something.something(a, b, c)?", ptype, obj.CLRMappedType));
+                            }
+
+                            target = obj.CLRMappedObject;
+                            toDispose.Add(obj);
+                        } else {
+                            throw new LuaException("Argument self is never optional. Did you mean to run something:something() but instead ran something.something()?");
+                        }
+                    }
+
                     args = new object[parms.Length];
 
                     for (int i = 0; i < parms.Length; ++i) {
-                        var ptype = parms[i].ParameterType;
+                        var ptype = parms [i].ParameterType;
 
-                        var luaType = i >= nargs ? LuaApi.LuaType.None : LuaApi.lua_type(state, i + 1);
+                        var lua_i = i + 1;
+                        if (uses_self_arg) lua_i = i + 2;
+                        
+                        var luaType = i >= nargs ? LuaApi.LuaType.None : LuaApi.lua_type(state, lua_i);
 
                         switch (luaType) {
                             case LuaApi.LuaType.None:
@@ -1662,7 +1713,7 @@ namespace Eluant
                                     throw new LuaException(string.Format("Argument {0}: Expected a {1}, got a bool.", i + 1, ptype));
                                 }
 
-                                args[i] = LuaApi.lua_toboolean(state, i + 1) != 0;
+                                args[i] = LuaApi.lua_toboolean(state, lua_i) != 0;
                                 break;
 
                             case LuaApi.LuaType.Function:
@@ -1670,13 +1721,13 @@ namespace Eluant
                                     throw new LuaException(string.Format("Argument {0}: Expected a {1}, got a function.", i + 1, ptype));
                                 }
 
-                                args[i] = wrapped = Wrap(i + 1);
+                                args[i] = wrapped = Wrap(lua_i);
                                 toDispose.Add(wrapped);
                                 break;
 
                             case LuaApi.LuaType.LightUserdata:
                                 if (ptype.IsAssignableFrom(typeof(LuaLightUserdata))) {
-                                    args[i] = wrapped = Wrap(i + 1);
+                                    args[i] = wrapped = Wrap(lua_i);
                                     toDispose.Add(wrapped);
                                 } else {
                                     throw new LuaException(string.Format("Argument {0}: Expected a {1}, got light userdata.", i + 1, ptype));
@@ -1685,14 +1736,14 @@ namespace Eluant
 
                             case LuaApi.LuaType.Number:
                                 if (ptype.IsEnum) {
-                                    var num = LuaApi.lua_tonumber(state, i + 1);
+                                    var num = LuaApi.lua_tonumber(state, lua_i);
                                     args [i] = Convert.ChangeType(num, Enum.GetUnderlyingType(ptype));
                                     break;
                                 }
 
                                 try {
-                                    args[i] = Convert.ChangeType(LuaApi.lua_tonumber(state, i + 1), ptype);
-                                } catch {
+                                    args[i] = Convert.ChangeType(LuaApi.lua_tonumber(state, lua_i), ptype);
+                                } catch (Exception e) {
                                     throw new LuaException(string.Format("Argument {0}: Expected a {1}, got a number.", i + 1, ptype));
                                 }
                                 break;
@@ -1702,15 +1753,15 @@ namespace Eluant
                                     throw new LuaException(string.Format("Argument {0}: Expected a {1}, got a string.", i + 1, ptype));
                                 }
 
-                                args[i] = LuaApi.lua_tostring(state, i + 1);
+                                args[i] = LuaApi.lua_tostring(state, lua_i);
                                 break;
 
                             case LuaApi.LuaType.Table:
                                 if (ptype.IsAssignableFrom(typeof(LuaTable))) {
-                                    args [i] = wrapped = Wrap(i + 1);
+                                    args [i] = wrapped = Wrap(lua_i);
                                     toDispose.Add(wrapped);
                                 } else if (ptype.IsArray) {
-                                    var tab = (LuaTable)Wrap(i + 1);
+                                    var tab = (LuaTable)Wrap(lua_i);
                                     args [i] = tab.ConvertToArray(ptype.GetElementType());
                                     wrapped = tab;
                                     toDispose.Add(wrapped);
@@ -1724,7 +1775,7 @@ namespace Eluant
                                     throw new LuaException(string.Format("Argument {0}: Expected a {1}, got a thread.", i + 1, ptype));
                                 }
 
-                                args[i] = wrapped = Wrap(i + 1);
+                                args[i] = wrapped = Wrap(lua_i);
                                 toDispose.Add(wrapped);
                                 break;
 
@@ -1737,10 +1788,10 @@ namespace Eluant
                                 // wrapped in userdata.  Further, we are trying to map to CLR types; if code wants Eluant
                                 // objects then it should take a LuaVararg instead.)
                                 LuaClrObjectValue clrObject;
-                                if ((clrObject = TryGetClrObject<LuaClrObjectValue>(i + 1)) != null) {
+                                if ((clrObject = TryGetClrObject<LuaClrObjectValue>(lua_i)) != null) {
                                     args[i] = clrObject.ClrObject;
                                 } else if (ptype.IsAssignableFrom(typeof(LuaUserdata))) {
-                                    args[i] = wrapped = Wrap(i + 1);
+                                    args[i] = wrapped = Wrap(lua_i);
                                     toDispose.Add(wrapped);
                                 } else {
                                     throw new LuaException(string.Format("Argument {0}: Expected {1}, got userdata.", i + 1, ptype));
@@ -1756,7 +1807,7 @@ namespace Eluant
 
                 object ret;
                 try {
-                    ret = wrapper.Invoke(args);
+                    ret = wrapper.Invoke(target, args);
                 } catch (MemberAccessException) {
                     throw new LuaException("Invalid argument(s).");
                 } catch (TargetInvocationException ex) {
@@ -1812,7 +1863,6 @@ namespace Eluant
 
                 LuaApi.lua_pushboolean(state, 1);
                 Push(retValue);
-
                 return 2;
             } catch (LuaException ex) {
                 LuaApi.lua_pushboolean(state, 0);
@@ -1832,6 +1882,8 @@ namespace Eluant
                 }
             }
         }
+
+        public int StackTop { get { return LuaApi.lua_gettop(LuaState); } }
 
         public LuaValue AsLuaValue(object obj)
         {
@@ -1984,29 +2036,37 @@ namespace Eluant
         // functions auto-generated from a CLR object method).
         internal class MethodWrapper
         {
+            public bool IsDelegate { get; private set; } = false;
+            public bool IsStatic { get; private set; } = false;
             public object Target { get; private set; }
             public MethodInfo Method { get; private set; }
 
-            public MethodWrapper(object target, MethodInfo method)
+            public MethodWrapper(object target, MethodInfo method, bool @static = false)
             {
                 if (method == null) { throw new ArgumentNullException("method"); }
 
                 Target = target;
                 Method = method;
+                IsDelegate = false;
+                IsStatic = @static;
             }
 
-            public MethodWrapper(Delegate d)
+            public MethodWrapper(Delegate d, bool @static = false)
             {
                 if (d == null) { throw new ArgumentNullException("d"); }
 
                 Target = d.Target;
                 Method = d.Method;
+                IsDelegate = true;
+                IsStatic = @static;
             }
 
-            public object Invoke(params object[] parms)
+            public object Invoke(object target, params object[] parms)
             {
+                target = target ?? Target;
+
                 try {
-                    return Method.Invoke(Target, parms);
+                    return Method.Invoke(target, parms);
                 } catch (TargetInvocationException e) {
                     throw e.InnerException == null ? e : (Exception)new WrapException(e.InnerException);
                 }

@@ -230,10 +230,10 @@ namespace Eluant.Tests
                 var script = @"
 function fn(o)
     local r = {
-        two = o.two(),
+        two = o:two(),
         three = o.three,
-        four = o.Four(),
-        five = o.add_two(3),
+        four = o:Four(),
+        five = o:add_two(3),
         GetType = o.GetType
     }
 

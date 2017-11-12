@@ -27,6 +27,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text;
 using NUnit.Framework;
 
 namespace Eluant.Tests
@@ -331,6 +332,21 @@ namespace Eluant.Tests
                 var inst = new Something();
                 runtime.Globals ["something"] = new LuaTransparentClrObject(inst, autobind: true);
 
+                using (var result = runtime.DoString(@"return something:GetType().TheAnswer")) {
+                    Assert.AreEqual(result [0].ToNumber(), 42);
+                }
+            }
+        }
+
+        [Test]
+        public void NoSelfInMethodsMode()
+        {
+            using (var runtime = new LuaRuntime()) {
+                runtime.MethodMode = LuaRuntime.LuaMethodMode.PassJustArgs;
+
+                var inst = new Something();
+                runtime.Globals ["something"] = new LuaTransparentClrObject(inst, autobind: true);
+
                 using (var result = runtime.DoString(@"return something.GetType().TheAnswer")) {
                     Assert.AreEqual(result [0].ToNumber(), 42);
                 }
@@ -440,6 +456,31 @@ namespace Eluant.Tests
             }
 
             Assert.IsTrue(called, "called");
+        }
+
+        public class HasVararg {
+            public string Stringify(LuaVararg args) {
+                var s = new StringBuilder();
+
+                for (int i = 0; i < args.Count; i++) {
+                    s.Append(args [i].ToString());
+                }
+
+                return s.ToString();
+            }
+        }
+
+        [Test]
+        public void LuaVarargMethod()
+        {
+            using (var runtime = new LuaRuntime()) {
+                runtime.Globals ["test"] = new LuaTransparentClrObject(new HasVararg(), autobind: true);
+
+                using (var ret = runtime.DoString(@"return test:Stringify(1, 2, 3)")) {
+                    Assert.AreEqual(1, ret.Count);
+                    Assert.AreEqual(123, ret [0].ToNumber());
+                }
+            }
         }
 
         [Test]
