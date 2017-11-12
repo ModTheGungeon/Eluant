@@ -40,11 +40,14 @@ namespace Eluant
         private LuaClrTypeObjectProxy proxy;
         private static readonly IBindingSecurityPolicy defaultSecurityPolicy = new BasicBindingSecurityPolicy(MemberSecurityPolicy.Permit);
 
+        public Type Type { get; private set; }
+
         public LuaClrTypeObject(Type type, IBindingSecurityPolicy binding_security_policy = null) : base(type)
         {
             if (binding_security_policy != null) BindingSecurityPolicy = binding_security_policy;
             else BindingSecurityPolicy = defaultSecurityPolicy;
 
+            Type = type;
             proxy = new LuaClrTypeObjectProxy(this, type);
         }
 
@@ -132,8 +135,6 @@ namespace Eluant
             private List<MemberInfo> GetMembers(LuaValue keyValue)
             {
                 var key = KeyToString(keyValue);
-
-                var l = clrObject.Binder.GetMembersByName(type, key).ToList();
 
                 if (key != null) {
                     return clrObject.Binder.GetMembersByName(type, key)

@@ -293,6 +293,37 @@ namespace Eluant.Tests
             }
         }
 
+        public static string Test() {
+            return "Hello";
+        }
+
+        [Test]
+        public void ClrPackage()
+        {
+            using (var runtime = new LuaRuntime()) {
+                runtime.InitializeClrPackage();
+
+                // adds a `clr` package with the following functions:
+                //   clr.assembly  | obtain an assembly with the provided name
+                //   clr.namespace | obtain a table
+
+                runtime.DoString(@"
+                    local ass = clr.assembly('Eluant.Tests')
+                    local EluantTests = clr.namespace(ass, 'Eluant.Tests')
+
+                    local s1 = EluantTests.Functions.Test()
+
+                    local Functions = clr.type(ass, 'Eluant.Tests.Functions')
+                    
+                    local s2 = Functions.Test()
+
+                    if s1 ~= s2 then
+                        error('The strings are different')
+                    end
+                ");
+            }
+        }
+
         [Test]
         [ExpectedException(typeof(InvalidOperationException), ExpectedMessage = "Can't convert table to CLR array of System.String: Element at index 3 is a LuaNumber which is convertible to System.Double", MatchType = MessageMatch.Exact)]
         public void LuaArrayConvertionError()

@@ -1093,6 +1093,65 @@ namespace Eluant
             return fn(state);
         }
 
+        public LuaTable ClrNamespace(Assembly ass, string @namespace) {
+            var types = ass.GetTypes();
+
+            // optimization
+            if (types.Length == 0) return CreateTable();
+
+            var tab = CreateTable();
+
+            for (int i = 0; i < types.Length; i++) {
+                if (string.Equals(types[i].Namespace, @namespace, StringComparison.Ordinal)) {
+                    tab [types [i].Name] = new LuaClrTypeObject(types [i]);
+                }
+            }
+            return tab;
+        }
+
+        public LuaTransparentClrObject ClrMetaType(Type static_type) {
+            return new LuaTransparentClrObject(static_type, autobind: true);
+        }
+
+        public LuaClrTypeObject ClrStaticType(Type meta_type) {
+            return new LuaClrTypeObject(meta_type);
+        }
+
+        public LuaClrTypeObject ClrType(Assembly ass, string full_name) {
+            return new LuaClrTypeObject(ass.GetType(full_name));
+        }
+
+        public LuaTransparentClrObject ClrAssembly(string name) {
+            var ass = Assembly.Load(name);
+            return new LuaTransparentClrObject(ass);
+        }
+
+        public void InitializeClrPackage() {
+            using (var tab = CreateTable()) {
+                Globals ["clr"] = tab;
+
+                using (var func = CreateFunctionFromDelegate(
+                    new Func<string, LuaTransparentClrObject>(ClrAssembly)
+                )) tab ["assembly"] = func;
+
+                using (var func = CreateFunctionFromDelegate(
+                    new Func<Assembly, string, LuaTable>(ClrNamespace)
+                )) tab ["namespace"] = func;
+
+                using (var func = CreateFunctionFromDelegate(
+                    new Func<Type, LuaTransparentClrObject>(ClrMetaType)
+                )) tab ["metatype"] = func;
+
+                using (var func = CreateFunctionFromDelegate(
+                    new Func<Type, LuaClrTypeObject>(ClrStaticType)
+                )) tab ["statictype"] = func;
+
+                using (var func = CreateFunctionFromDelegate(
+                    new Func<Assembly, string, LuaClrTypeObject>(ClrType)
+                )) tab ["type"] = func;
+            }
+        }
+
         internal void SetMetatable(LuaTable mt, LuaValue val) {
             Push(val);
             Push(mt);
@@ -1598,7 +1657,7 @@ namespace Eluant
                             case LuaApi.LuaType.Boolean:
                                 // Bool means bool.
                                 if (!ptype.IsAssignableFrom(typeof(bool))) {
-                                    throw new LuaException(string.Format("Argument {0}: Cannot be bool.", i + 1));
+                                    throw new LuaException(string.Format("Argument {0}: Expected a {1}, got a bool.", i + 1, ptype));
                                 }
 
                                 args[i] = LuaApi.lua_toboolean(state, i + 1) != 0;
@@ -1606,7 +1665,7 @@ namespace Eluant
 
                             case LuaApi.LuaType.Function:
                                 if (!ptype.IsAssignableFrom(typeof(LuaFunction))) {
-                                    throw new LuaException(string.Format("Argument {0}: Cannot be a function.", i + 1));
+                                    throw new LuaException(string.Format("Argument {0}: Expected a {1}, got a function.", i + 1, ptype));
                                 }
 
                                 args[i] = wrapped = Wrap(i + 1);
@@ -1618,7 +1677,7 @@ namespace Eluant
                                     args[i] = wrapped = Wrap(i + 1);
                                     toDispose.Add(wrapped);
                                 } else {
-                                    throw new LuaException(string.Format("Argument {0}: Cannot be light userdata.", i + 1));
+                                    throw new LuaException(string.Format("Argument {0}: Expected a {1}, got light userdata.", i + 1, ptype));
                                 }
                                 break;
 
@@ -1632,13 +1691,13 @@ namespace Eluant
                                 try {
                                     args[i] = Convert.ChangeType(LuaApi.lua_tonumber(state, i + 1), ptype);
                                 } catch {
-                                    throw new LuaException(string.Format("Argument {0}: Cannot be a number.", i + 1));
+                                    throw new LuaException(string.Format("Argument {0}: Expected a {1}, got a number.", i + 1, ptype));
                                 }
                                 break;
 
                             case LuaApi.LuaType.String:
                                 if (!ptype.IsAssignableFrom(typeof(string))) {
-                                    throw new LuaException(string.Format("Argument {0}: Cannot be a string.", i + 1));
+                                    throw new LuaException(string.Format("Argument {0}: Expected a {1}, got a string.", i + 1, ptype));
                                 }
 
                                 args[i] = LuaApi.lua_tostring(state, i + 1);
@@ -1654,13 +1713,13 @@ namespace Eluant
                                     wrapped = tab;
                                     toDispose.Add(wrapped);
                                 } else {
-                                    throw new LuaException(string.Format("Argument {0}: Cannot be a table.", i + 1));
+                                    throw new LuaException(string.Format("Argument {0}: Expected a {1}, got a table.", i + 1, ptype));
                                 }
                                 break;
 
                             case LuaApi.LuaType.Thread:
                                 if (!ptype.IsAssignableFrom(typeof(LuaThread))) {
-                                    throw new LuaException(string.Format("Argument {0}: Cannot be a thread.", i + 1));
+                                    throw new LuaException(string.Format("Argument {0}: Expected a {1}, got a thread.", i + 1, ptype));
                                 }
 
                                 args[i] = wrapped = Wrap(i + 1);
@@ -1682,7 +1741,7 @@ namespace Eluant
                                     args[i] = wrapped = Wrap(i + 1);
                                     toDispose.Add(wrapped);
                                 } else {
-                                    throw new LuaException(string.Format("Argument {0}: Cannot be userdata.", i + 1));
+                                    throw new LuaException(string.Format("Argument {0}: Expected {1}, got userdata.", i + 1, ptype));
                                 }
 
                                 break;
