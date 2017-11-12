@@ -227,6 +227,25 @@ namespace Eluant.Tests
         }
 
         [Test]
+        [ExpectedException(typeof(LuaException), ExpectedMessage = "attempt to call global 'print' (a nil value)", MatchType = MessageMatch.Contains)]
+        public void Environments()
+        {
+            using (var runtime = new LuaRuntime()) {
+                using (var f = runtime.CompileString("print('hi')")) {
+                    using (var tab = runtime.CreateTable()) {
+                        f.Environment = tab;
+                    }
+
+                    using (var env = f.Environment) {
+                        Assert.AreEqual(0, env.Count);
+                    }
+
+                    f.Call().Dispose();
+                }
+            }
+        }
+
+        [Test]
         public void AutoboundObjects()
         {
             using (var runtime = new LuaRuntime()) {

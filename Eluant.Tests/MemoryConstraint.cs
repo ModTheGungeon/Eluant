@@ -38,6 +38,8 @@ namespace Eluant.Tests
         [ExpectedException(typeof(LuaException), ExpectedMessage="not enough memory")]
         public void BasicMemoryConstraint()
         {
+            if (LuaRuntime.LUAJIT && IntPtr.Size == 8) Assert.Ignore();
+
             using (var runtime = new MemoryConstrainedLuaRuntime()) {
                 runtime.MaxMemoryUse = runtime.MemoryUse + 10 * 1024 * 1024;
 
@@ -49,6 +51,8 @@ namespace Eluant.Tests
         [Test]
         public void NoMemoryErrorWhileInClr()
         {
+            if (LuaRuntime.LUAJIT && IntPtr.Size == 8) Assert.Ignore();
+
             using (var runtime = new MemoryConstrainedLuaRuntime()) {
                 Action fn = () => {
                     runtime.MaxMemoryUse = runtime.MemoryUse + 1;

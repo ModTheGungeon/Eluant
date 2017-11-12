@@ -44,6 +44,8 @@ namespace Eluant
         private static readonly LuaApi.lua_CFunction methodWrapperCallCallbackWrapper;
         private static readonly LuaApi.lua_CFunction cFunctionCallback;
 
+        public const bool LUAJIT = LuaApi.LUAJIT;
+
         static LuaRuntime()
         {
             clrObjectGcCallbackWrapper = ClrObjectGcCallbackWrapper;
@@ -540,6 +542,25 @@ namespace Eluant
             while (releasedReferences.TryDequeue(out reference)) {
                 DestroyReference(reference);
             }
+        }
+
+        internal void SetFenv(LuaTable env, LuaValue val) {
+            Push(val);
+            Push(env);
+            if (LuaApi.lua_setfenv(LuaState, -2) == 0) {
+                throw new LuaException("Can't set environment of a value that's not a function, thread or userdata");
+            }
+
+            LuaApi.lua_pop(LuaState, 1);
+        }
+
+        internal LuaTable GetFenv(LuaValue val) {
+            Push(val);
+            LuaApi.lua_getfenv(LuaState, -1);
+            var tab = Wrap(-1) as LuaTable;
+            LuaApi.lua_pop(LuaState, 1);
+
+            return tab;
         }
 
         private const int MAX_CHUNK_NAME_LENGTH = 8;

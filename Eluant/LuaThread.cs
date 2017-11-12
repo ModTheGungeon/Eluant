@@ -33,6 +33,11 @@ namespace Eluant
         public override Type CLRMappedType { get { return typeof(LuaThread); } }
         public override object CLRMappedObject { get { return this; } }
 
+        public LuaTable Environment {
+            get { return Runtime.GetFenv(this); }
+            set { Runtime.SetFenv(value, this); }
+        }
+
         internal LuaThread(LuaRuntime runtime, int reference) : base(runtime, reference) { }
 
         public override bool ToBoolean()

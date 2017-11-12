@@ -32,6 +32,11 @@ namespace Eluant
     {
         internal LuaUserdata(LuaRuntime runtime, int reference) : base(runtime, reference) { }
 
+        public LuaTable Environment {
+            get { return Runtime.GetFenv(this); }
+            set { Runtime.SetFenv(value, this); }
+        }
+
         public override Type CLRMappedType { get { return typeof(LuaUserdata); } }
         public override object CLRMappedObject { get { return this; } }
 

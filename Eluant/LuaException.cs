@@ -42,7 +42,7 @@ namespace Eluant
         private string[] getTracebackArray() {
             var traceback = new List<string>();
 
-            if (tracebackString != null) {
+            if (tracebackString != null && tracebackString.Trim() != string.Empty) {
                 foreach (var l in tracebackString.Split('\n')) {
                     traceback.Add(l);
                 }

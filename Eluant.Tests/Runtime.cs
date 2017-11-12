@@ -36,6 +36,7 @@ namespace Eluant.Tests
         [Test]
         public void LuaCollectsObjectsAfterReferencesAreDisposed()
         {
+            if (LuaRuntime.LUAJIT && IntPtr.Size == 8) Assert.Ignore();
             // In this test we repeatedly create and destroy table references to make sure the Lua GC is able to collect
             // them.  We create a multiple of 1,000 tables since the runtime rewrites the reference table every 1,000
             // reference destructions.  This should return the runtime to exactly the same state as it was at the
@@ -98,6 +99,8 @@ namespace Eluant.Tests
         [Test]
         public void Finalizer()
         {
+            if (LuaRuntime.LUAJIT && IntPtr.Size == 8) Assert.Ignore();
+
             var finalized = false;
             var luaState = IntPtr.Zero;
 

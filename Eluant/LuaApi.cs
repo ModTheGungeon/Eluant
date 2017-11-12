@@ -290,6 +290,12 @@ namespace Eluant
         [DllImport(LUA_DLL, CallingConvention=LUA_CALLING_CONVENTION)]
         public static extern void lua_setfield(IntPtr L, int index, [MarshalAs(UnmanagedType.LPStr)] string k);
 
+        [DllImport(LUA_DLL, CallingConvention = LUA_CALLING_CONVENTION)]
+        public static extern int lua_setfenv(IntPtr L, int index);
+
+        [DllImport(LUA_DLL, CallingConvention = LUA_CALLING_CONVENTION)]
+        public static extern void lua_getfenv(IntPtr L, int index);
+
         public static void lua_setglobal(IntPtr L, string name)
         {
             lua_setfield(L, LUA_GLOBALSINDEX, name);
