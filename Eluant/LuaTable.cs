@@ -33,6 +33,9 @@ namespace Eluant
 {
     public class LuaTable : LuaReference, IDictionary<LuaValue, LuaValue>
     {
+        public override Type CLRMappedType { get { return typeof(LuaTable); } }
+        public override object CLRMappedObject { get { return this; } }
+
         internal LuaTable(LuaRuntime runtime, int reference) : base(runtime, reference)
         {
             Keys = new KeyCollection(this);
@@ -98,6 +101,51 @@ namespace Eluant
 
             return Runtime.CreateWeakReference(this);
         }
+
+        #region Array conversions
+        public bool ConvertableToArray(Type element_type) {
+            int i = 1;
+            while (true) {
+                using (var entry = this [i]) {
+                    if (entry is LuaNil) break;
+
+                    if (!entry.CLRMappedType.IsAssignableFrom(element_type) || entry.CLRMappedType.IsAssignableFrom(typeof(LuaValue))) {
+                        return false;
+                    }
+
+                    else i++;
+                }
+            }
+            return true;
+        }
+
+        public object ConvertToArray(Type element_type) {
+            int count = 0;
+            while (true) {
+                using (var entry = this [count + 1]) {
+                    if (entry is LuaNil) break;
+
+                    if (!entry.CLRMappedType.IsAssignableFrom(element_type)) {
+                        throw new InvalidOperationException($"Can't convert table to CLR array of {element_type}: Element at index {count + 1} is a {entry.GetType().Name} which is convertible to {entry.CLRMappedType}");
+                    } else if (entry.CLRMappedType.IsAssignableFrom(typeof(IDisposable))) {
+                        throw new InvalidOperationException($"Can't convert disposable type {entry.CLRMappedType} of entry at index {count + 1} to a CLR array (this is a measure to prevent potential memory leaks)");
+                    }
+
+                    else count++;
+                }
+            }
+
+            var ary = Array.CreateInstance(element_type, count);
+
+            for (int i = 1; i <= count; i++) {
+                using (var entry = this [i]) {
+                    ary.SetValue(entry.CLRMappedObject, i - 1);
+                }
+            }
+
+            return ary;
+        }
+        #endregion
 
         #region IEnumerable implementation
 

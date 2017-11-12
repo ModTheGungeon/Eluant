@@ -58,7 +58,64 @@ namespace Eluant
             SetStepMul = 7,
         }
 
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+        public struct lua_Debug
+        {
+            public int eventCode;
+            IntPtr pname;
+            IntPtr pnamewhat;
+            IntPtr pwhat;
+            IntPtr psource;
+            public int currentline;
+            public int nups;
+            public int linedefined;
+            public int lastlinedefined;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 60)]
+            public string short_src;
+            int i_ci;
+
+            public string name {
+                get {
+                    if (pname == (IntPtr)0) return null;
+                    return Marshal.PtrToStringAnsi(pname);
+                }
+            }
+
+            public string namewhat {
+                get {
+                    if (pnamewhat == (IntPtr)0) return null;
+                    return Marshal.PtrToStringAnsi(pnamewhat);
+                }
+            }
+
+            public string what {
+                get {
+                    if (pwhat == (IntPtr)0) return null;
+                    return Marshal.PtrToStringAnsi(pwhat);
+                }
+            }
+
+            public string source {
+                get {
+                    if (psource == (IntPtr)0) return null;
+                    return Marshal.PtrToStringAnsi(psource);
+                }
+            }
+
+            public new string ToString()
+            {
+                return string.Format("[lua_Debug: name={0}, namewhat={1}, what={2}, source={3} i_ci={4}]", name, namewhat, what, source, i_ci);
+            }
+        }
+
+#if ELUANT_LUAJIT
+        internal const string LUA_DLL = "luajit-5.1";
+        internal const bool LUAJIT = true;
+#else
         internal const string LUA_DLL = "lua5.1";
+        internal const bool LUAJIT = false;
+#endif
         internal const CallingConvention LUA_CALLING_CONVENTION = CallingConvention.Cdecl;
 
         public const int LUA_REGISTRYINDEX = -10000;
@@ -296,6 +353,12 @@ namespace Eluant
         [DllImport(LUA_DLL, CallingConvention=LUA_CALLING_CONVENTION)]
         public static extern int lua_yield(IntPtr L, int nresults);
 
+        [DllImport(LUA_DLL, CallingConvention=LUA_CALLING_CONVENTION)]
+        public static extern int lua_getstack(IntPtr L, int level, ref lua_Debug ar);
+
+        [DllImport(LUA_DLL, CallingConvention=LUA_CALLING_CONVENTION)]
+        public static extern int lua_getinfo(IntPtr L, [MarshalAs(UnmanagedType.LPStr)] string what, ref lua_Debug ar);
+
         // Aux lib.
 
         public static void luaL_getmetatable(IntPtr L, string name)
@@ -321,62 +384,9 @@ namespace Eluant
         [DllImport(LUA_DLL, CallingConvention=LUA_CALLING_CONVENTION)]
         public static extern void luaL_unref(IntPtr L, int t, int r);
 
-        [DllImport(LUA_DLL, CallingConvention=LUA_CALLING_CONVENTION)]
-        public static extern int lua_getstack(IntPtr L, int level, ref lua_Debug ar);
-
-        [DllImport(LUA_DLL, CallingConvention=LUA_CALLING_CONVENTION)]
-        public static extern int lua_getinfo(IntPtr L, [MarshalAs(UnmanagedType.LPStr)] string what, ref lua_Debug ar);
-
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
-        public struct lua_Debug
-        {
-            public int eventCode;
-            IntPtr pname;
-            IntPtr pnamewhat;
-            IntPtr pwhat;
-            IntPtr psource;
-            public int currentline;
-            public int nups;
-            public int linedefined;
-            public int lastlinedefined;
-            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 60)]
-            public string short_src;
-            int i_ci;
-
-            public string name {
-                get {
-                    if (pname == (IntPtr)0) return null;
-                    return Marshal.PtrToStringAnsi(pname);
-                }
-            }
-
-            public string namewhat {
-                get {
-                    if (pnamewhat == (IntPtr)0) return null;
-                    return Marshal.PtrToStringAnsi(pnamewhat);
-                }
-            }
-
-            public string what {
-                get {
-                    if (pwhat == (IntPtr)0) return null;
-                    return Marshal.PtrToStringAnsi(pwhat);
-                }
-            }
-
-            public string source {
-                get {
-                    if (psource == (IntPtr)0) return null;
-                    return Marshal.PtrToStringAnsi(psource);
-                }
-            }
-
-            public new string ToString()
-            {
-                return string.Format("[lua_Debug: name={0}, namewhat={1}, what={2}, source={3} i_ci={4}]", name, namewhat, what, source, i_ci);
-            }
-        }
-
+        [DllImport(LUA_DLL, CallingConvention = LUA_CALLING_CONVENTION)]
+        public static extern int luaL_loadbuffer(IntPtr L, [MarshalAs(UnmanagedType.LPStr)] string buff, UIntPtr sz, [MarshalAs(UnmanagedType.LPStr)] string name);
     }
 }
+
 

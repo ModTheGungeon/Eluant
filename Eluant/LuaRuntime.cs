@@ -32,6 +32,7 @@ using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using Eluant.ObjectBinding;
 using System.Linq;
+using System.Text;
 
 namespace Eluant
 {
@@ -63,11 +64,57 @@ namespace Eluant
             get { return selfHandle; }
         }
 
+        public enum LuaExceptionMode {
+            SingleSpliced,
+            // LuaExceptions will be thrown with no inner exceptions (or inner exceptions of a type other than LuaException).
+            // The tracebacks of LuaExceptions will be merged in such a way that the exception will contain the deepest
+            // Lua traceback with CLR (C#) stack traces inserted into the traceback in the right places in the correct order.
+            // The exception will contain the Lua value that `error` was called with, if applicable.
+            // This is the default.
+            NestedSeparate
+            // LuaExceptions will be thrown with an inner LuaException (and that exception might have an inner LuaException
+            // too, etc.). Each exception will contain a different Lua traceback (the deeper into the inner exceptions,
+            // the deeper the traceback) and a different CLR stack trace.
+            // Only the deepest inner exception will contain the Lua value that `error` was called with, if applicable.
+            // You may use this if you suspect that the single LuaException thrown in SingleSpliced mode contains
+            // inaccurate information (unlikely, but might happen as a result of a bug).
+        }
+
         private ObjectReferenceManager<LuaClrObjectValue> objectReferenceManager = new ObjectReferenceManager<LuaClrObjectValue>();
 
         // Separate field for the corner case where customAllocator was collected first.
         private bool hasCustomAllocator = false;
         private LuaAllocator customAllocator;
+
+        public LuaExceptionMode ExceptionMode = LuaExceptionMode.SingleSpliced;
+
+
+        // The below constants are used for making the tracebacks pretty.
+        // The line numbers should match BindingSupport.lua.
+
+        // name for the BindingSupport.lua chunk
+        private const string RESERVED_CHUNK_NAME = "@EluantBindings";
+
+        // name that'll appear in the stacktrace
+        private const string RESERVED_CHUNK_TRACE_NAME = "EluantBindings";
+
+        // placeholder for entries in the lua trace where a C# stack trace should be inserted
+        // (when the inner exception is a LuaException)
+        private const string CLR_STACKTRACE_PLACEHOLDER = "@[[CLR STACKTRACE]]";
+
+        // placeholder for entries in the lua trace where a C# stack trace should be inserted
+        // (when the inner exception is not a LuaException)
+        private const string CLR_STACKTRACE_NONLUA_PLACEHOLDER = "@[[CLR NONLUA STACKTRACE]]";
+
+        // process_managed_call, condition marked with '-- pcall'
+        private const int ERROR_FROM_LUA_LINENO = 29;
+            
+        // process_managed_call, condition marked with '-- CLR'
+        private const int ERROR_FROM_CLR_LINENO = 32;
+
+        // the line that returns the return value of process_managed_call
+        // in the anonymous function returned by eluant_create_managed_call_wrapper
+        private const int CALL_OVER_CLR_BOUNDARY_LINENO = 40;
 
         private const string MAIN_THREAD_KEY = "eluant_main_thread";
         private const string REFERENCES_KEY = "eluant_references";
@@ -81,7 +128,6 @@ namespace Eluant
         private Dictionary<string, LuaFunction> metamethodCallbacks = new Dictionary<string, LuaFunction>();
 
         private LuaFunction createManagedCallWrapper;
-        private LuaFunction debugTraceback;
 
         private ConcurrentQueue<int> releasedReferences = new ConcurrentQueue<int>();
 
@@ -96,7 +142,11 @@ namespace Eluant
                 if (customAllocator != null) {
                     hasCustomAllocator = true;
                     //LuaState = LuaApi.luaL_newstate();
-                    LuaState = LuaApi.lua_newstate(customAllocator, customState);
+                    if (LuaApi.LUAJIT && IntPtr.Size == 8) {
+                        throw new InvalidOperationException("Can't use custom allocators with LuaJIT on 64 bit architectures");
+                    } else {
+                        LuaState = LuaApi.lua_newstate(customAllocator, customState);
+                    }
                 } else {
                     hasCustomAllocator = false;
                     LuaState = LuaApi.luaL_newstate();
@@ -208,7 +258,7 @@ namespace Eluant
 
             LuaApi.lua_pop(LuaState, 1);
 
-            DoString(Scripts.BindingSupport, traceback: false).Dispose();
+            DoStringInternal(Scripts.BindingSupport, chunk_name: RESERVED_CHUNK_NAME).Dispose();
 
             createManagedCallWrapper = (LuaFunction)Globals["eluant_create_managed_call_wrapper"];
 
@@ -216,7 +266,8 @@ namespace Eluant
 
             metamethodCallbacks["__newindex"] = CreateCallbackWrapper(NewindexCallback);
             metamethodCallbacks["__index"] = CreateCallbackWrapper(IndexCallback);
-
+            metamethodCallbacks["__tostring"] = CreateCallbackWrapper(ToStringCallback);
+            
             metamethodCallbacks["__add"] = CreateCallbackWrapper(state => BinaryOperatorCallback<ILuaAdditionBinding>(state, (i, a, b) => i.Add(this, a, b)));
             metamethodCallbacks["__sub"] = CreateCallbackWrapper(state => BinaryOperatorCallback<ILuaSubtractionBinding>(state, (i, a, b) => i.Subtract(this, a, b)));
             metamethodCallbacks["__mul"] = CreateCallbackWrapper(state => BinaryOperatorCallback<ILuaMultiplicationBinding>(state, (i, a, b) => i.Multiply(this, a, b)));
@@ -496,9 +547,10 @@ namespace Eluant
             }
         }
 
-        private void LoadString(string str)
+        private const int MAX_CHUNK_NAME_LENGTH = 8;
+        private void LoadString(string str, string chunk_name = null)
         {
-            if (LuaApi.luaL_loadstring(LuaState, str) != 0) {
+            if (LuaApi.luaL_loadbuffer(LuaState, str, (UIntPtr)str.Length, chunk_name ?? str) != 0) {
                 var error = LuaApi.lua_tostring(LuaState, -1);
                 LuaApi.lua_pop(LuaState, 1);
 
@@ -506,16 +558,23 @@ namespace Eluant
             }
         }
 
-        public LuaVararg DoString(string str, bool traceback = true)
+        public LuaVararg DoString(string str, string chunk_name = null) {
+            if (str == RESERVED_CHUNK_NAME || chunk_name == RESERVED_CHUNK_NAME) {
+                throw new Exception($"Chunk name '{RESERVED_CHUNK_NAME}' is reserved for Eluant only.");
+            }
+            return DoStringInternal(str, chunk_name);
+        }
+
+        private LuaVararg DoStringInternal(string str, string chunk_name = null)
         {
             if (str == null) { throw new ArgumentNullException("str"); }
 
             CheckDisposed();
 
-            if (traceback) PushPcallMessageHandler();
-            LoadString(str);
+            PushPcallMessageHandler();
+            LoadString(str, chunk_name: chunk_name);
             // Compiled code is on the stack, now call it.
-            var res = Call(new LuaValue[0], traceback);
+            var res = Call(new LuaValue[0]);
             return res;
         }
 
@@ -534,89 +593,233 @@ namespace Eluant
             return (LuaFunction)fn;
         }
 
-        internal LuaVararg Call(LuaFunction fn, IList<LuaValue> args, bool traceback = true)
+        internal LuaVararg Call(LuaFunction fn, IList<LuaValue> args)
         {
             if (fn == null) { throw new ArgumentNullException("fn"); }
             if (args == null) { throw new ArgumentNullException("args"); }
 
             CheckDisposed();
 
-            if (traceback) PushPcallMessageHandler();
+            PushPcallMessageHandler();
             Push(fn);
 
-            var res = Call(args, traceback);
+            var res = Call(args);
             return res;
         }
 
         private void PushPcallMessageHandler()
         {
-            LuaApi.lua_pushcclosure(LuaState, DoTraceback, 0);
+            PushSelf();
+            LuaApi.lua_pushcclosure(LuaState, PcallErrorHandler, 1);
         }
 
-        private const int LEVELS1 = 12;
-        private const int LEVELS2 = 10;
-        private int DoTraceback(IntPtr state)
-        {
-            // if the error message isn't a string, just pass it on
-            if (LuaApi.lua_isstring(state, -1) == 0) return LuaApi.lua_gettop(LuaState);
-            var error = LuaApi.lua_tostring(state, -1);
-            LuaApi.lua_remove(state, -1);
-
-            LuaApi.lua_newtable(state); // t
-
-            LuaApi.lua_pushlightuserdata(LuaState, (IntPtr)GetHashCode()); // k
-            LuaApi.lua_pushboolean(state, 1); // v
-            LuaApi.lua_settable(state, -3); // t[k] = v
-
-            LuaApi.lua_pushnumber(state, TRACEBACKERR_MSG_KEY); // k
-            LuaApi.lua_pushstring(state, error); // v
-            LuaApi.lua_settable(state, -3); // t[k] = v
-
-            LuaApi.lua_pushnumber(state, TRACEBACKERR_TRACE_KEY); // k
-
+        private static void PushTraceback(IntPtr state, bool use_clr_call_placeholders) {
             var ar = new LuaApi.lua_Debug();
             var firstpart = true;
-            int level = 0;
-            var top = LuaApi.lua_gettop(LuaState);
-            bool first_line = false;
+            int level = 2;
+            var top = LuaApi.lua_gettop(state);
+            bool first_line = true;
 
-            while (LuaApi.lua_getstack(LuaState, level++, ref ar) != 0) {
+            int skip_lines = 0;
+
+            while (LuaApi.lua_getstack(state, level++, ref ar) != 0) {
                 if (level > LEVELS1 && firstpart) {
                     /* no more than `LEVELS2' more levels? */
-                    if (LuaApi.lua_getstack(LuaState, level + LEVELS2, ref ar) == 0)
+                    if (LuaApi.lua_getstack(state, level + LEVELS2, ref ar) == 0)
                         level--;  /* keep going */
                     else {
-                        LuaApi.lua_pushstring(LuaState, "\n\t..."); /* too many levels */
-                        while (LuaApi.lua_getstack(LuaState, level + LEVELS2, ref ar) != 0)  /* find last levels */
+                        LuaApi.lua_pushstring(state, "\n\t..."); /* too many levels */
+                        while (LuaApi.lua_getstack(state, level + LEVELS2, ref ar) != 0)  /* find last levels */
                             level++;
                     }
                     firstpart = false;
                     continue;
                 }
-                if (!first_line) LuaApi.lua_pushstring(LuaState, "\n");
-                first_line = false;
+                if (skip_lines > 0) {
+                    skip_lines -= 1;
+                    continue;
+                }
 
-                LuaApi.lua_getinfo(LuaState, "Snl", ref ar);
+                LuaApi.lua_getinfo(state, "Snl", ref ar);
 
-                LuaApi.lua_pushstring(LuaState, $"{ar.short_src}:");
-                if (ar.currentline > 0) LuaApi.lua_pushstring(LuaState, $"{ar.currentline}:");
-                if (ar.namewhat != null && ar.namewhat.Length > 0 && ar.namewhat[0] != '\0') { /* is there a name? */
-                    LuaApi.lua_pushstring(LuaState, $" in function '{ar.name}'");
-                } else {
-                    if (ar.what[0] == 'm') { /* main? */
-                        LuaApi.lua_pushstring(LuaState, " in main chunk");
-                    } else if (ar.what[0] == 'C' || ar.what [0] == 't') {
-                        LuaApi.lua_pushstring(LuaState, " ?");  /* C function or tail call */
-                    } else {
-                        LuaApi.lua_pushstring(LuaState, $" in function <{ar.short_src}:{ar.linedefined}>");
+                if (ar.short_src == RESERVED_CHUNK_TRACE_NAME) {
+                    string pretty_trace = null;
+                    
+                    // if trace entry is from Eluant bindings, make the output prettier
+                    if (ar.currentline == ERROR_FROM_CLR_LINENO) {
+                        skip_lines = 1;
+                        if (use_clr_call_placeholders) {
+                            pretty_trace = CLR_STACKTRACE_NONLUA_PLACEHOLDER;
+                        } else {
+                            pretty_trace = $"[eluant]: passing on error from CLR";
+                        }
+                    } else if (ar.currentline == ERROR_FROM_LUA_LINENO) {
+                        skip_lines = 1;
+                        pretty_trace = $"[eluant]: passing on error from Lua";
+                    } else if (ar.currentline == CALL_OVER_CLR_BOUNDARY_LINENO) {
+                        if (use_clr_call_placeholders) {
+                            pretty_trace = CLR_STACKTRACE_PLACEHOLDER;
+                        } else {
+                            pretty_trace = $"[eluant]: call to CLR";
+                        }
+                    }
+
+                    if (pretty_trace != null) {
+                        if (!first_line) LuaApi.lua_pushstring(state, "\n");
+                        LuaApi.lua_pushstring(state, pretty_trace);
+                        first_line = false;
+                        continue;
+                    }
+                } else if (ar.short_src == $"[C]") {
+                    var future = new LuaApi.lua_Debug();
+                    if (LuaApi.lua_getstack(state, level + 1, ref future) != 0) {
+                        LuaApi.lua_getinfo(state, "Snl", ref future);
+                        // this is two levels forward - level will already be 1 higher than the one in this loop due
+                        // to the postfix increment in the while at the top
+
+                        if (future.short_src == RESERVED_CHUNK_TRACE_NAME && future.currentline == CALL_OVER_CLR_BOUNDARY_LINENO) {
+                            // if in two trace lines we're going to get the trace of the lua part of the CLR call
+                            // remove this and the next line as they're useless garbage
+                            // (just "[C]: ?" and "[C]: in function 'real_pcall")
+
+                            skip_lines = 1;
+                            continue;
+                        }
                     }
                 }
-                LuaApi.lua_concat(LuaState, LuaApi.lua_gettop(LuaState) - top);
-            }
-            LuaApi.lua_concat(LuaState, LuaApi.lua_gettop(LuaState) - top);
-            // v
 
-            LuaApi.lua_settable(state, -3); // t[k] = v
+                if (!first_line) LuaApi.lua_pushstring(state, "\n");
+                first_line = false;
+
+                LuaApi.lua_pushstring(state, $"{ar.short_src}:");
+                if (ar.currentline > 0) LuaApi.lua_pushstring(state, $"{ar.currentline}:");
+
+
+                if (ar.namewhat != null && ar.namewhat.Length > 0 && ar.namewhat [0] != '\0') { /* is there a name? */
+                    LuaApi.lua_pushstring(state, $" in function '{ar.name}'");
+                } else if (ar.what != null) {
+                    if (ar.what [0] == 'm') { /* main? */
+                        LuaApi.lua_pushstring(state, " in main chunk");
+                    } else if (ar.what [0] == 'C' || ar.what [0] == 't') {
+                        LuaApi.lua_pushstring(state, " ?");  /* C function or tail call */
+                    } else {
+                        LuaApi.lua_pushstring(state, $" in function <{ar.short_src}:{ar.linedefined}>");
+                    }
+                }
+                LuaApi.lua_concat(state, LuaApi.lua_gettop(state) - top);
+            }
+            LuaApi.lua_concat(state, LuaApi.lua_gettop(state) - top);
+        }
+
+        public string DoTraceback() {
+            PushTraceback(LuaState, ExceptionMode == LuaExceptionMode.SingleSpliced);
+            var trace = LuaApi.lua_tostring(LuaState, -1);
+            LuaApi.lua_remove(LuaState, -1);
+            return trace;
+        }
+
+        // Used for preserving the stack trace of exceptions
+        private class WrapException : Exception {
+            public WrapException(Exception inner) : base("(wrap)", inner) {}
+        }
+
+        private static string ReplaceFirst(string text, string search, string replace)
+        {
+            int pos = text.IndexOf(search, StringComparison.InvariantCulture);
+            if (pos < 0) {
+                return text;
+            }
+            return text.Substring(0, pos) + replace + text.Substring(pos + search.Length);
+        }
+
+        private const int LEVELS1 = 12;
+        private const int LEVELS2 = 10;
+        private static int PcallErrorHandler(IntPtr state)
+        {
+            var runtime = GetSelf(state, LuaApi.lua_upvalueindex(1));
+
+            string error_msg = "An error has occured in Lua code.";
+            Exception inner = null;
+            LuaValue value = null;
+
+            if (LuaApi.lua_isstring(state, -1) != 0) {
+                error_msg = LuaApi.lua_tostring(state, -1);
+                value = error_msg;
+            } else {
+                var wrap = runtime.Wrap(-1);
+                if (wrap is IClrObject) {
+                    var obj = (IClrObject)wrap;
+                    if (obj.ClrObject is WrapException) {
+                        inner = ((WrapException)obj.ClrObject).InnerException;
+                        error_msg = ((WrapException)obj.ClrObject).InnerException.Message;
+                    }
+                    else if (obj.ClrObject is Exception) {
+                        inner = (Exception)obj.ClrObject;
+                        error_msg = ((Exception)obj.ClrObject).Message;
+                    } else {
+                        value = obj as LuaValue;
+                    }
+                } else {
+                    value = wrap;
+                }
+            }
+            LuaApi.lua_remove(state, -1);
+            
+            LuaApi.lua_newtable(state); // t
+
+            string trace = null;
+            if (runtime.ExceptionMode == LuaExceptionMode.SingleSpliced && inner != null && inner is LuaException) {
+                if (((LuaException)inner).tracebackString != null) {
+                    trace = ((LuaException)inner).tracebackString;
+
+                    // Replace the first occurence of CLR_STACKTRACE_PLACEHOLDER in the traceback with the stacktrace
+                    // of the inner exception
+                    int pos = trace.IndexOf(CLR_STACKTRACE_PLACEHOLDER, StringComparison.InvariantCulture);
+                    if (pos >= 0) {
+                        var stacktrace_fragment = inner.StackTrace.Replace("  at", "[clr]:");
+                        trace = trace.Substring(0, pos) + stacktrace_fragment + trace.Substring(pos + CLR_STACKTRACE_PLACEHOLDER.Length);;
+                    }
+                }
+                ((LuaException)inner).tracebackString = trace;
+                runtime.PushCustomClrObject(new LuaTransparentClrObject(inner));
+            } else {
+                PushTraceback(state, runtime.ExceptionMode == LuaExceptionMode.SingleSpliced);
+                trace = LuaApi.lua_tostring(state, -1);
+                LuaApi.lua_remove(state, -1);
+
+                int pos = trace.IndexOf(CLR_STACKTRACE_NONLUA_PLACEHOLDER, StringComparison.InvariantCulture);
+                if (pos >= 0) {
+                    string stacktrace_fragment = "";
+                    // small optimization - avoid using the StringBuilder
+                    // stuff if we're only dealing with an inner exception
+                    // that doesn't have any inner exceptions
+                    if (inner.InnerException != null) {
+                        var s = new StringBuilder();
+                        var exceptions = new List<Exception>();
+
+                        Exception e = inner;
+                        while (e != null) {
+                            exceptions.Add(e);
+                            e = e.InnerException;
+                        }
+
+                        for (int i = exceptions.Count - 1; i >= 0; i--) {
+                            s.Append(exceptions [i].StackTrace.Replace("  at", "[clr]:"));
+                            if (i != 0) {
+                                s.AppendLine($"\n[rethrow]: inner exception {exceptions [i].GetType()}: {exceptions [i].Message}");
+                            }
+                        }
+
+                        stacktrace_fragment = s.ToString();
+                    } else {
+                        stacktrace_fragment = inner.StackTrace.Replace("  at", "[clr]:");
+                    }
+                    trace = trace.Substring(0, pos) + stacktrace_fragment + trace.Substring(pos + CLR_STACKTRACE_NONLUA_PLACEHOLDER.Length);
+                }
+
+                var ex = new LuaException(error_msg, null, value, trace);
+                runtime.PushCustomClrObject(new LuaTransparentClrObject(ex));
+            }
 
             return 1;
         }
@@ -630,20 +833,15 @@ namespace Eluant
         // Calls a function that has already been pushed (with a message handler that has already been pushed).
         // We need this functionality to support DoString().
         // Call CheckDisposed() before calling this method!
-        private LuaVararg Call(IList<LuaValue> args, bool traceback)
+        private LuaVararg Call(IList<LuaValue> args)
         {
             if (args == null) { throw new ArgumentNullException("args"); }
 
-            var left_over_stack_entries_after_pcall = 0;
-            if (traceback) left_over_stack_entries_after_pcall = 1;
-
             // Top should point to the frame BELOW the function and the message handler,
             // which should have already been pushed.
-            var top = LuaApi.lua_gettop(LuaState) - 1;
-            if (traceback) top -= left_over_stack_entries_after_pcall;
+            var top = LuaApi.lua_gettop(LuaState) - 2;
 
-            var msgh_index = traceback ? top + 1 : 0; // LuaApi.lua_gettop(LuaState) - 1
-            // 0 means no error handler
+            var msgh_index = top + 1;
 
             bool needEnterClr = false;
 
@@ -671,28 +869,19 @@ namespace Eluant
                     needEnterClr = false;
                     OnEnterClr();
 
-                    if (LuaApi.lua_istable(LuaState, -1)) { // error is actually a table?
-                        // the special err is identified by a light userdata with a value of this instance's hash code
-                        // to avoid the ability to fake errors from lua
-                        LuaApi.lua_pushlightuserdata(LuaState, (IntPtr)GetHashCode());
-                        LuaApi.lua_gettable(LuaState, -2);
-                        if (!LuaApi.lua_isnil(LuaState, -1)) { // if not nil, it's our error
-                            LuaApi.lua_remove(LuaState, -1);
-
-                            // as a tiny optimization, keys are numbers instead of strings
-                            LuaApi.lua_pushnumber(LuaState, TRACEBACKERR_MSG_KEY);
-                            LuaApi.lua_gettable(LuaState, -2);
-                            var err_message = LuaApi.lua_tostring(LuaState, -1);
-                            LuaApi.lua_remove(LuaState, -1);
-
-                            LuaApi.lua_pushnumber(LuaState, TRACEBACKERR_TRACE_KEY);
-                            LuaApi.lua_gettable(LuaState, -2);
-                            var err_traceback = LuaApi.lua_tostring(LuaState, -1);
-                            LuaApi.lua_remove(LuaState, -1);
-
-                            throw new LuaException(err_message, traceback: err_traceback);
-                        } else { // otherwise just throw
-                            throw new LuaException(LuaApi.lua_tostring(LuaState, -1));
+                    if (IsClrObject(-1)) { // error is actually a CLR object?
+                        var obj = Wrap(-1);
+                        if (obj is LuaClrObjectReference) {
+                            var clrobj = ((LuaClrObjectReference)obj).ClrObject;
+                            if (clrobj is LuaException) {
+                                throw clrobj as LuaException;
+                            } else if (clrobj is Exception) {
+                                throw new LuaException(((Exception)clrobj).Message, (Exception)clrobj, obj);
+                            } else {
+                                throw new LuaException("An error has occured in Lua code.", null, value: obj);
+                            }
+                        } else {
+                            throw new LuaException("An error has occured in Lua code.", null, value: obj);
                         }
                     } else {
                         throw new LuaException(LuaApi.lua_tostring(LuaState, -1));
@@ -705,7 +894,7 @@ namespace Eluant
 
                 // Results are in the stack, last result on the top.
                 var newTop = LuaApi.lua_gettop(LuaState);
-                var nresults = newTop - top - left_over_stack_entries_after_pcall;
+                var nresults = newTop - top - 1;
                 results = new LuaValue[nresults];
 
                 if (nresults > 0) {
@@ -715,7 +904,7 @@ namespace Eluant
                     }
 
                     for (int i = 0; i < nresults; ++i) {
-                        results[i] = Wrap(top + 1 + left_over_stack_entries_after_pcall + i);
+                        results[i] = Wrap(top + 2 + i);
                     }
                 }
 
@@ -940,6 +1129,16 @@ namespace Eluant
                 toDispose.Add(value);
 
                 Push(value);
+
+                return 1;
+            });
+        }
+
+        private int ToStringCallback(IntPtr state) {
+            return LuaToClrBoundary(state, toDispose => {
+                var obj = GetClrObject<LuaClrObjectValue>(1).BackingCustomObject as ILuaToStringBinding;
+
+                Push(obj.ToLuaString(this));
 
                 return 1;
             });
@@ -1235,7 +1434,8 @@ namespace Eluant
                 LuaApi.lua_settop(state, oldTop);
 
                 LuaApi.lua_pushboolean(state, 0);
-                LuaApi.lua_pushstring(state, "Uncaught CLR exception at Lua->CLR boundary: " + ex.ToString());
+
+                PushCustomClrObject(new LuaTransparentClrObject(ex));
                 return 2;
             } finally {
                 try {
@@ -1355,12 +1555,17 @@ namespace Eluant
                                 break;
 
                             case LuaApi.LuaType.Table:
-                                if (!ptype.IsAssignableFrom(typeof(LuaTable))) {
+                                if (ptype.IsAssignableFrom(typeof(LuaTable))) {
+                                    args [i] = wrapped = Wrap(i + 1);
+                                    toDispose.Add(wrapped);
+                                } else if (ptype.IsArray) {
+                                    var tab = (LuaTable)Wrap(i + 1);
+                                    args [i] = tab.ConvertToArray(ptype.GetElementType());
+                                    wrapped = tab;
+                                    toDispose.Add(wrapped);
+                                } else {
                                     throw new LuaException(string.Format("Argument {0}: Cannot be a table.", i + 1));
                                 }
-
-                                args[i] = wrapped = Wrap(i + 1);
-                                toDispose.Add(wrapped);
                                 break;
 
                             case LuaApi.LuaType.Thread:
@@ -1405,7 +1610,7 @@ namespace Eluant
                     throw new LuaException("Invalid argument(s).");
                 } catch (TargetInvocationException ex) {
                     if (ex.InnerException is LuaException) {
-                        throw ex.InnerException;
+                        throw new WrapException(ex.InnerException);
                     }
                     throw;
                 }
@@ -1461,11 +1666,11 @@ namespace Eluant
                 return 2;
             } catch (LuaException ex) {
                 LuaApi.lua_pushboolean(state, 0);
-                LuaApi.lua_pushstring(state, ex.Message);
+                PushCustomClrObject(new LuaTransparentClrObject(ex));
                 return 2;
             } catch (Exception ex) {
                 LuaApi.lua_pushboolean(state, 0);
-                LuaApi.lua_pushstring(state, "Uncaught CLR exception at Lua->CLR boundary: " + ex.ToString());
+                PushCustomClrObject(new LuaTransparentClrObject(ex));
                 return 2;
             } finally {
                 // Dispose whatever we need to.  It's okay to dispose result objects, as that will only release the CLR
@@ -1645,9 +1850,15 @@ namespace Eluant
 
             public object Invoke(params object[] parms)
             {
-                return Method.Invoke(Target, parms);
+                try {
+                    return Method.Invoke(Target, parms);
+                } catch (TargetInvocationException e) {
+                    throw e.InnerException == null ? e : (Exception)new WrapException(e.InnerException);
+                }
             }
         }
     }
 }
+
+
 

@@ -33,6 +33,9 @@ namespace Eluant
         IComparable<LuaNumber>, IComparable<double>,
         IComparable
     {
+        public override Type CLRMappedType { get { return typeof(double); } }
+        public override object CLRMappedObject { get { return ToNumber(); } }
+
         public double Value { get; private set; }
 
         public LuaNumber(double value)

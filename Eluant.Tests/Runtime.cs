@@ -44,11 +44,6 @@ namespace Eluant.Tests
                 using (var collectgarbage = (LuaFunction)runtime.Globals["collectgarbage"]) {
                     collectgarbage.Call();
 
-                    // we use runtime.Collect directly instead of collectgarbage
-                    // to avoid creating some more memory as a result of calling collectgarbage
-                    // due to the traceback handling
-                    // we could also just call it with 'traceback: false'
-
                     var begin = runtime.MemoryUse;
                     
                     // Stress the GC a bit by creating and disposing tables, in batches of 100.

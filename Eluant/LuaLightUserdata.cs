@@ -30,6 +30,9 @@ namespace Eluant
 {
     public class LuaLightUserdata : LuaReference
     {
+        public override Type CLRMappedType { get { return typeof(LuaLightUserdata); } }
+        public override object CLRMappedObject { get { return this; } }
+
         internal LuaLightUserdata(LuaRuntime runtime, int reference) : base(runtime, reference) { }
 
         public override bool ToBoolean()

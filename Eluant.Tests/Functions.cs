@@ -75,12 +75,108 @@ namespace Eluant.Tests
         }
 
         [Test]
+        public void LuaNonStringErrorPropagation()
+        {
+            using (var runtime = new LuaRuntime()) {
+                try {
+                    runtime.DoString("error({a = 1, b = 2, c = 3})");
+                } catch (LuaException e) {
+                    Assert.AreEqual(e.Message, "An error has occured in Lua code.");
+                    Assert.NotNull(e.Value);
+                    Assert.IsInstanceOf(typeof(LuaTable), e.Value);
+                    var val = (LuaTable)e.Value;
+                    Assert.AreEqual(val ["a"].ToNumber(), 1);
+                    Assert.AreEqual(val ["b"].ToNumber(), 2);
+                    Assert.AreEqual(val ["c"].ToNumber(), 3);
+                }
+            }
+        }
+
+        public static void Trace(Exception e, bool inner = false) {
+            if (inner) Console.Write($"INNER EXCEPTION: ");
+            Console.WriteLine($"{e.Message}");
+
+            if (e is LuaException) {
+                Console.WriteLine(((LuaException)e).Traceback);
+            } else {
+                Console.WriteLine(e.StackTrace);
+            }
+
+            if (e.InnerException != null) {
+                Trace(e.InnerException, true);
+            }
+        }
+
+        private void DoError(LuaRuntime runtime) {
+            runtime.DoString("error({a = true})").Dispose();
+        }
+
+        [Test]
+        public void LuaNestedErrors()
+        {
+            using (var runtime = new LuaRuntime()) {
+                Action errorer = () => { DoError(runtime); };
+                using (var func = runtime.CreateFunctionFromDelegate(errorer)) {
+                    runtime.Globals ["test"] = func;
+                }
+
+                Action errorer2 = () => { runtime.DoString("test()").Dispose(); };
+                using (var func = runtime.CreateFunctionFromDelegate(errorer2)) {
+                    runtime.Globals ["test2"] = func;
+                }
+
+                try {
+                    runtime.DoString(@"
+                    function test3()
+                        test2()
+                    end
+                    test3()");
+                } catch (LuaException e) {
+                    Assert.AreEqual(e.Message, "An error has occured in Lua code.");
+                    Assert.IsInstanceOf<LuaTable>(e.Value);
+                    var tab = (LuaTable)e.Value;
+                    Assert.AreEqual(tab ["a"].ToBoolean(), true);
+                    Assert.IsNull(e.InnerException);
+                }
+            }
+        }
+
+        [Test]
+        public void LuaClrStaticMethods()
+        {
+            using (var runtime = new LuaRuntime()) {
+                Func<LuaClrTypeObject> testex = () => { return new LuaClrTypeObject(typeof(string)); };
+                using (var func = runtime.CreateFunctionFromDelegate(testex)) {
+                    runtime.Globals ["extest"] = func;
+                }
+
+                runtime.DoString(@"
+                    local str = extest()
+                    print(str.Join(',', {'Hello', ' world!'}, 0, 2))
+                ");
+            }                
+        }
+
+        [Test]
+        [ExpectedException(typeof(InvalidOperationException), ExpectedMessage = "Can't convert table to CLR array of System.String: Element at index 3 is a LuaNumber which is convertible to System.Double", MatchType = MessageMatch.Exact)]
+        public void LuaArrayConvertionError()
+        {
+            using (var runtime = new LuaRuntime()) {
+                runtime.Globals ["string"] = new LuaClrTypeObject(typeof(string));
+
+                runtime.DoString(@"
+                    print(string.Join(',', {'Hello', ' world!', 10}, 0, 3))
+                ");
+            }
+        }
+
+        [Test]
         [ExpectedException(typeof(LuaException), ExpectedMessage="$TEST$", MatchType=MessageMatch.Contains)]
         public void ClrErrorPropagation()
         {
-            Action thrower = () => { throw new LuaException("$TEST$"); };
-
             using (var runtime = new LuaRuntime()) {
+                Action thrower = () => { throw new LuaException("$TEST$"); };
+
                 using (var wrapper = runtime.CreateFunctionFromDelegate(thrower)) {
                     runtime.Globals["callback"] = wrapper;
 
@@ -91,7 +187,7 @@ namespace Eluant.Tests
         }
 
         [Test]
-        [ExpectedException(typeof(LuaException), ExpectedMessage="InvalidOperationException", MatchType=MessageMatch.Contains)]
+        [ExpectedException(typeof(LuaException), ExpectedMessage="Operation is not valid due to the current state of the object", MatchType=MessageMatch.Contains)]
         public void ClrExceptionPropagation()
         {
             Action thrower = () => { throw new InvalidOperationException(); };
@@ -140,7 +236,7 @@ namespace Eluant.Tests
         {
             var range = Enumerable.Range(1, 1000);
 
-            Func<LuaVararg> fn = () => new LuaVararg(range.Select(i => (LuaNumber)i), true);
+            Func<LuaVararg> fn = () => new LuaVararg(range.Select(i => (LuaNumber)i).Cast<LuaValue>(), true);
 
             using (var runtime = new LuaRuntime()) {
                 using (var f = runtime.CreateFunctionFromDelegate(fn)) {

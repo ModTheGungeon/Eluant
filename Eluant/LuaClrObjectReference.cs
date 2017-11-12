@@ -32,6 +32,9 @@ namespace Eluant
     {
         public LuaClrObjectReference(LuaRuntime runtime, int reference) : base(runtime, reference) { }
 
+        public override Type CLRMappedType { get { return ClrObject.GetType(); } }
+        public override object CLRMappedObject { get { return ClrObject; } }
+
         public override bool ToBoolean()
         {
             return ClrObject != null;

@@ -1,5 +1,5 @@
 //
-// BasicLuaBinder.cs
+// ReflectionLuaBinder.cs
 //
 // Author:
 //       Chris Howie <me@chrishowie.com>
@@ -34,42 +34,37 @@ namespace Eluant.ObjectBinding
 {
     using MemberNameMap = Dictionary<string, List<MemberInfo>>;
 
-    public class BasicLuaBinder : ILuaBinder
+    public class ReflectionLuaBinder : ILuaBinder
     {
-        private static readonly BasicLuaBinder instance = new BasicLuaBinder();
+        private static readonly ReflectionLuaBinder instance = new ReflectionLuaBinder();
+        public BindingFlags BindingFlags;
+        private bool ObjectAsType = false;
 
-        public static BasicLuaBinder Instance
-        {
+        public static ReflectionLuaBinder Instance {
             get { return instance; }
         }
 
         private static Dictionary<Type, MemberNameMap> memberNameCache = new Dictionary<Type, MemberNameMap>();
 
-        private static readonly MemberInfo[] noMembers = new MemberInfo[0];
+        private static readonly MemberInfo [] noMembers = new MemberInfo [0];
 
-        public BasicLuaBinder() { }
+        public ReflectionLuaBinder(BindingFlags binding_flags = BindingFlags.Public | BindingFlags.Instance, bool obj_is_type = false) {
+            BindingFlags = binding_flags;
+            ObjectAsType = obj_is_type;
+        }
 
-        private static MemberNameMap GetMembersByName(Type type)
+        private static MemberNameMap GetMembersByName(Type type, BindingFlags binding_flags)
         {
             var membersByName = new MemberNameMap();
 
-            foreach (var member in type.GetMembers(BindingFlags.Public | BindingFlags.Instance)) {
+            foreach (var member in type.GetMembers(binding_flags)) {
                 var method = member as MethodInfo;
                 if (method != null && method.IsGenericMethodDefinition) {
                     continue;
                 }
 
-                foreach (var memberNameAttr in member.GetCustomAttributes(typeof(LuaMemberAttribute), true).Cast<LuaMemberAttribute>()) {
-                    var memberName = memberNameAttr.LuaKey ?? member.Name;
-
-                    List<MemberInfo> members;
-                    if (!membersByName.TryGetValue(memberName, out members)) {
-                        members = new List<MemberInfo>();
-                        membersByName[memberName] = members;
-                    }
-
-                    members.Add(member);
-                }
+                var memberName = member.Name;
+                membersByName [member.Name] = new List<MemberInfo> { member };
             }
 
             return membersByName;
@@ -82,14 +77,20 @@ namespace Eluant.ObjectBinding
             if (targetObject == null) { throw new ArgumentNullException("targetObject"); }
             if (memberName == null) { throw new ArgumentNullException("memberName"); }
 
-            var type = targetObject.GetType();
+            Type type = null;
+            if (ObjectAsType) {
+                type = targetObject as Type;
+                if (type == null) throw new Exception("ObjectIsType is true, but object is not of type Type");
+            } else {
+                type = targetObject.GetType();
+            }
 
             MemberNameMap memberNameMap;
 
             lock (memberNameCache) {
                 if (!memberNameCache.TryGetValue(type, out memberNameMap)) {
-                    memberNameMap = GetMembersByName(type);
-                    memberNameCache[type] = memberNameMap;
+                    memberNameMap = GetMembersByName(type, BindingFlags);
+                    memberNameCache [type] = memberNameMap;
                 }
             }
 

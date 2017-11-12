@@ -33,6 +33,9 @@ namespace Eluant
         private static readonly LuaBoolean falseBoolean = new LuaBoolean(false);
         private static readonly LuaBoolean trueBoolean = new LuaBoolean(true);
 
+        public override Type CLRMappedType { get { return typeof(bool); } }
+        public override object CLRMappedObject { get { return ToBoolean(); } }
+
         public static LuaBoolean False
         {
             get { return falseBoolean; }

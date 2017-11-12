@@ -40,6 +40,7 @@ Global
 		$2.scope = text/x-csharp
 		$2.SpaceAfterMethodCallName = False
 		$2.SpacingAfterMethodDeclarationName = False
+		$2.IndentSwitchSection = True
 		$0.TextStylePolicy = $3
 		$3.NoTabsAfterNonTabs = True
 		$3.inheritsSet = VisualStudio

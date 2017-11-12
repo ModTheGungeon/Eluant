@@ -33,6 +33,9 @@ namespace Eluant
     {
         internal LuaTable WeakTable { get; private set; }
 
+        public override Type CLRMappedType { get { return typeof(LuaWeakReference<T>); } }
+        public override object CLRMappedObject { get { return this; } }
+
         internal LuaWeakReference(LuaTable weakTable)
         {
             if (weakTable == null) { throw new ArgumentNullException("weakTable"); }

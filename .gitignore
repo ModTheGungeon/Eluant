@@ -6,3 +6,4 @@ obj
 *.swp
 test-results
 /packages
+/TestResult.xml

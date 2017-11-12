@@ -32,6 +32,9 @@ namespace Eluant
     {
         public object ClrObject { get; private set; }
 
+        public override Type CLRMappedType { get { return ClrObject.GetType(); } }
+        public override object CLRMappedObject { get { return ClrObject; } }
+
         public LuaClrObjectValue(object obj)
         {
             ClrObject = obj;

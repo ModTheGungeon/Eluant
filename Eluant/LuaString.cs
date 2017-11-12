@@ -32,6 +32,9 @@ namespace Eluant
         IEquatable<LuaString>, IEquatable<string>,
         IComparable, IComparable<LuaString>, IComparable<string>
     {
+        public override Type CLRMappedType { get { return typeof(string); } }
+        public override object CLRMappedObject { get { return ToString(); } }
+
         public string Value { get; private set; }
 
         public LuaString(string value)

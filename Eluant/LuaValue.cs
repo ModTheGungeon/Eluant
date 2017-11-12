@@ -36,6 +36,9 @@ namespace Eluant
         // LuaValueType types to completely omit the finalizer with a no-op Dispose() implementation.
         public abstract void Dispose();
 
+        public abstract Type CLRMappedType { get; }
+        public abstract object CLRMappedObject { get; }
+
         public LuaValue CopyReference()
         {
             return CopyReferenceImpl();

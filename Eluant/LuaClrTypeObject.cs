@@ -1,7 +1,8 @@
+﻿//
+// LuaClrTypeObject.cs
 //
-// LuaTransparentClrObject.cs
-//
-// Author:
+// Authors:
+//       Zatherz <zatherz@zatherz.eu>
 //       Chris Howie <me@chrishowie.com>
 //
 // Copyright (c) 2013 Chris Howie
@@ -32,23 +33,19 @@ using System.Reflection;
 
 namespace Eluant
 {
-    public class LuaTransparentClrObject : LuaClrObjectValue, IEquatable<LuaTransparentClrObject>, IBindingContext
+    public class LuaClrTypeObject : LuaClrObjectValue, IEquatable<LuaClrTypeObject>, IBindingContext
     {
-        private static readonly IBindingSecurityPolicy defaultSecurityPolicy = new BasicBindingSecurityPolicy(MemberSecurityPolicy.Deny);
-
         public IBindingSecurityPolicy BindingSecurityPolicy { get; private set; }
-        public ILuaBinder Binder { get; private set; }
+        public ILuaBinder Binder { get; private set; } = new ReflectionLuaBinder(BindingFlags.Static | BindingFlags.Public, obj_is_type: true);
+        private LuaClrTypeObjectProxy proxy;
+        private static readonly IBindingSecurityPolicy defaultSecurityPolicy = new BasicBindingSecurityPolicy(MemberSecurityPolicy.Permit);
 
-        private TransparentClrObjectProxy proxy;
-
-        public LuaTransparentClrObject(object obj) : this(obj, null, null) { }
-
-        public LuaTransparentClrObject(object obj, ILuaBinder binder, IBindingSecurityPolicy bindingSecurityPolicy) : base(obj)
+        public LuaClrTypeObject(Type type, IBindingSecurityPolicy binding_security_policy = null) : base(type)
         {
-            Binder = binder ?? BasicLuaBinder.Instance;
-            BindingSecurityPolicy = bindingSecurityPolicy ?? defaultSecurityPolicy;
+            if (binding_security_policy != null) BindingSecurityPolicy = binding_security_policy;
+            else BindingSecurityPolicy = defaultSecurityPolicy;
 
-            proxy = new TransparentClrObjectProxy(this);
+            proxy = new LuaClrTypeObjectProxy(this, type);
         }
 
         internal override void Push(LuaRuntime runtime)
@@ -58,52 +55,53 @@ namespace Eluant
 
         public override bool Equals(LuaValue other)
         {
-            return Equals(other as LuaTransparentClrObject);
+            return Equals(other as LuaClrTypeObject);
         }
 
-        public bool Equals(LuaTransparentClrObject obj)
+        public bool Equals(LuaClrTypeObject obj)
         {
             return obj != null && obj.ClrObject == ClrObject;
         }
 
-        internal override object BackingCustomObject
-        {
+        internal override object BackingCustomObject {
             get { return proxy; }
         }
 
-        private class TransparentClrObjectProxy : ILuaTableBinding, ILuaEqualityBinding, ILuaToStringBinding
+        private class LuaClrTypeObjectProxy : ILuaTableBinding, ILuaEqualityBinding, ILuaToStringBinding
         {
-            private LuaTransparentClrObject clrObject;
+            private Type type;
+            private LuaClrTypeObject clrObject;
 
-            public TransparentClrObjectProxy(LuaTransparentClrObject obj)
+            public LuaClrTypeObjectProxy(LuaClrTypeObject clr_object, Type type)
             {
-                clrObject = obj;
+                this.clrObject = clr_object;
+                this.type = type;
             }
 
-            private static LuaTransparentClrObject GetObjectValue(LuaValue v)
+            private static LuaClrTypeObject GetObjectValue(LuaValue v)
             {
                 var r = v as LuaClrObjectReference;
                 if (r != null) {
-                    return r.ClrObjectValue as LuaTransparentClrObject;
+                    return r.ClrObjectValue as LuaClrTypeObject;
                 }
 
                 return null;
             }
 
             #region ILuaToStringBinding implementation
-            public LuaString ToLuaString(LuaRuntime runtime) {
-                return clrObject?.ClrObject?.ToString();
+            public LuaString ToLuaString(LuaRuntime runtime)
+            {
+                return $"CLR type {type.ToString()}";
             }
             #endregion
 
             #region ILuaEqualityBinding implementation
-
             public LuaValue Equals(LuaRuntime runtime, LuaValue left, LuaValue right)
             {
                 var leftObj = GetObjectValue(left);
                 var rightObj = GetObjectValue(right);
 
-                if (object.ReferenceEquals(leftObj, rightObj)) {
+                if (ReferenceEquals(leftObj, rightObj)) {
                     return true;
                 }
 
@@ -111,9 +109,7 @@ namespace Eluant
                     return false;
                 }
 
-                return leftObj.ClrObject == rightObj.ClrObject &&
-                    leftObj.Binder == rightObj.Binder &&
-                        leftObj.BindingSecurityPolicy == rightObj.BindingSecurityPolicy;
+                return leftObj.ClrObject == rightObj.ClrObject;
             }
 
             #endregion
@@ -139,7 +135,7 @@ namespace Eluant
 
                 if (key != null) {
                     return clrObject.Binder.GetMembersByName(clrObject.ClrObject, key)
-                        .Where(i => clrObject.BindingSecurityPolicy.GetMemberSecurityPolicy(i) == MemberSecurityPolicy.Permit)
+                                    .Where(i => clrObject.BindingSecurityPolicy.GetMemberSecurityPolicy(i) == MemberSecurityPolicy.Permit)
                             .ToList();
                 }
 
@@ -148,18 +144,17 @@ namespace Eluant
 
             #region ILuaTableBinding implementation
 
-            public LuaValue this[LuaRuntime runtime, LuaValue keyValue]
-            {
+            public LuaValue this [LuaRuntime runtime, LuaValue keyValue] {
                 get {
                     var members = GetMembers(keyValue);
 
                     if (members.Count == 1) {
-                        var method = members[0] as MethodInfo;
+                        var method = members [0] as MethodInfo;
                         if (method != null) {
-                            return runtime.CreateFunctionFromMethodWrapper(new LuaRuntime.MethodWrapper(clrObject.ClrObject, method));
+                            return runtime.CreateFunctionFromMethodWrapper(new LuaRuntime.MethodWrapper(null, method));
                         }
 
-                        var property = members[0] as PropertyInfo;
+                        var property = members [0] as PropertyInfo;
                         if (property != null) {
                             var getter = property.GetGetMethod();
                             if (getter == null) {
@@ -169,12 +164,13 @@ namespace Eluant
                                 throw new LuaException("Cannot get an indexer.");
                             }
 
-                            return clrObject.Binder.ObjectToLuaValue(property.GetValue(clrObject.ClrObject, null), clrObject, runtime);
+                            var ret = property.GetValue(null, null);
+                            return clrObject.Binder.ObjectToLuaValue(ret, clrObject, runtime);
                         }
 
-                        var field = members[0] as FieldInfo;
+                        var field = members [0] as FieldInfo;
                         if (field != null) {
-                            return clrObject.Binder.ObjectToLuaValue(field.GetValue(clrObject.ClrObject), clrObject, runtime);
+                            return clrObject.Binder.ObjectToLuaValue(field.GetValue(null), clrObject, runtime);
                         }
                     }
 
@@ -184,7 +180,7 @@ namespace Eluant
                     var members = GetMembers(keyValue);
 
                     if (members.Count == 1) {
-                        var property = members[0] as PropertyInfo;
+                        var property = members [0] as PropertyInfo;
                         if (property != null) {
                             var setter = property.GetSetMethod();
                             if (setter == null) {
@@ -201,11 +197,11 @@ namespace Eluant
                                 throw new LuaException("Value is incompatible with this property.");
                             }
 
-                            property.SetValue(clrObject.ClrObject, v, null);
+                            property.SetValue(null, v, null);
                             return;
                         }
 
-                        var field = members[0] as FieldInfo;
+                        var field = members [0] as FieldInfo;
                         if (field != null) {
                             object v;
                             try {
@@ -214,7 +210,7 @@ namespace Eluant
                                 throw new LuaException("Value is incompatible with this property.");
                             }
 
-                            field.SetValue(clrObject.ClrObject, v);
+                            field.SetValue(null, v);
                             return;
                         }
                     }

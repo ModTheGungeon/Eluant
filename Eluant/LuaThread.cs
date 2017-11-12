@@ -30,6 +30,9 @@ namespace Eluant
 {
     public sealed class LuaThread : LuaReference
     {
+        public override Type CLRMappedType { get { return typeof(LuaThread); } }
+        public override object CLRMappedObject { get { return this; } }
+
         internal LuaThread(LuaRuntime runtime, int reference) : base(runtime, reference) { }
 
         public override bool ToBoolean()

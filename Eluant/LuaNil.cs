@@ -30,6 +30,9 @@ namespace Eluant
 {
     public sealed class LuaNil : LuaValueType
     {
+        public override Type CLRMappedType { get { return typeof(LuaNil); } }
+        public override object CLRMappedObject { get { return this; } }
+
         private static readonly LuaNil instance = new LuaNil();
 
         public static LuaNil Instance

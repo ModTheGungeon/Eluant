@@ -31,6 +31,9 @@ namespace Eluant
 {
     public class LuaFunction : LuaReference
     {
+        public override Type CLRMappedType { get { return typeof(LuaFunction); } }
+        public override object CLRMappedObject { get { return this; } }
+
         internal LuaFunction(LuaRuntime runtime, int reference) : base(runtime, reference) { }
 
         public override bool ToBoolean()
@@ -48,20 +51,13 @@ namespace Eluant
             return "[LuaFunction]";
         }
 
-        public LuaVararg Call(IList<LuaValue> args, bool traceback = true)
-        {
-            return Runtime.Call(this, args, traceback);
+        public LuaVararg Call(params LuaValue[] args) {
+            return Runtime.Call(this, args);
         }
 
-        private static IList<LuaValue> NO_ARGS = new List<LuaValue>();
-        public LuaVararg Call(bool traceback = true)
+        public LuaVararg Call(IList<LuaValue> args)
         {
-            return Runtime.Call(this, NO_ARGS);
-        }
-
-        public LuaVararg Call(params LuaValue[] args)
-        {
-            return Call((IList<LuaValue>)args);
+            return Runtime.Call(this, args);
         }
 
         new public LuaWeakReference<LuaFunction> CreateWeakReference()

@@ -25,22 +25,89 @@
 // THE SOFTWARE.
 
 using System;
+using System.Collections.Generic;
+using System.Text;
 
 namespace Eluant
 {
     public class LuaException : Exception
     {
-        public string[] Traceback;
-        public string TracebackString;
-        
-        public LuaException(string message, string traceback = null) : base(message) {
-            TracebackString = traceback;
-            Traceback = traceback?.Split('\n');
+        internal string tracebackString;
+        public LuaValue Value;
+        private int tracebackHashCode;
+        private string [] cachedTracebackArray;
+        private string cachedTraceback;
+
+        private string[] getTracebackArray() {
+            var traceback = new List<string>();
+
+            if (tracebackString != null) {
+                foreach (var l in tracebackString.Split('\n')) {
+                    traceback.Add(l);
+                }
+                tracebackHashCode = tracebackString.GetHashCode();
+            }
+
+            if (StackTrace != null) {
+                var split = StackTrace.Split('\n');
+                foreach (var l in split) {
+                    traceback.Add(l.Replace("  at", "[clr]:"));
+                }
+            }
+
+
+            return cachedTracebackArray = traceback.ToArray();
         }
 
-        public LuaException(string message, Exception inner, string traceback = null) : base(message, inner) {
-            TracebackString = traceback;
-            Traceback = traceback?.Split('\n');
+        private string getTraceback() {
+            var s = new StringBuilder();
+
+            if (tracebackString != null) {
+                foreach (var l in tracebackString.Split('\n')) {
+                    s.AppendLine(l);
+                }
+                tracebackHashCode = tracebackString.GetHashCode();
+            }
+
+            if (StackTrace != null) {
+                var split = StackTrace.Split('\n');
+                foreach (var l in split) {
+                    s.AppendLine(l.Replace("  at", "[clr]:"));
+                }
+            }
+
+            return cachedTraceback = s.ToString();
+        }
+
+        public string[] TracebackArray {
+            get {
+                if (tracebackString == null) return null;
+                if (tracebackString.GetHashCode() == tracebackHashCode) {
+                    return cachedTracebackArray;
+                } else {
+                    return getTracebackArray();
+                }
+            }
+        }
+
+        public string Traceback {
+            get {
+                if (tracebackString == null) return null;
+                if (tracebackString.GetHashCode() == tracebackHashCode) {
+                    return cachedTraceback;
+                } else {
+                    return getTraceback();
+                }
+            }
+        }
+
+
+        public LuaException(string message, string traceback = null) : this(message, null, null, traceback) { }
+
+        public LuaException(string message, Exception inner, LuaValue value = null, string traceback = null) : base(message, inner) {
+            tracebackString = traceback;
+            tracebackHashCode = 0;
+            Value = value;
         }
     }
 }

@@ -32,6 +32,9 @@ namespace Eluant
     {
         internal LuaUserdata(LuaRuntime runtime, int reference) : base(runtime, reference) { }
 
+        public override Type CLRMappedType { get { return typeof(LuaUserdata); } }
+        public override object CLRMappedObject { get { return this; } }
+
         public override bool ToBoolean()
         {
             return true;

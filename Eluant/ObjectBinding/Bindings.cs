@@ -119,6 +119,12 @@ namespace Eluant.ObjectBinding
         LuaVararg Call(LuaRuntime runtime, LuaVararg arguments);
     }
 
+    [Metamethod("__tostring")]
+    public interface ILuaToStringBinding
+    {
+        LuaString ToLuaString(LuaRuntime runtime);
+    }
+
     public interface ILuaMathBinding :
         ILuaAdditionBinding,
         ILuaSubtractionBinding,
