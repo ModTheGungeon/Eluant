@@ -99,12 +99,7 @@ namespace Eluant
         private const string RESERVED_CHUNK_TRACE_NAME = "EluantBindings";
 
         // placeholder for entries in the lua trace where a C# stack trace should be inserted
-        // (when the inner exception is a LuaException)
         private const string CLR_STACKTRACE_PLACEHOLDER = "@[[CLR STACKTRACE]]";
-
-        // placeholder for entries in the lua trace where a C# stack trace should be inserted
-        // (when the inner exception is not a LuaException)
-        private const string CLR_STACKTRACE_NONLUA_PLACEHOLDER = "@[[CLR NONLUA STACKTRACE]]";
 
         // process_managed_call, condition marked with '-- pcall'
         private const int ERROR_FROM_LUA_LINENO = 29;
@@ -649,7 +644,7 @@ namespace Eluant
                     if (ar.currentline == ERROR_FROM_CLR_LINENO) {
                         skip_lines = 1;
                         if (use_clr_call_placeholders) {
-                            pretty_trace = CLR_STACKTRACE_NONLUA_PLACEHOLDER;
+                            pretty_trace = CLR_STACKTRACE_PLACEHOLDER;
                         } else {
                             pretty_trace = $"[eluant]: passing on error from CLR";
                         }
@@ -771,15 +766,20 @@ namespace Eluant
             if (runtime.ExceptionMode == LuaExceptionMode.SingleSpliced && inner != null && inner is LuaException) {
                 if (((LuaException)inner).tracebackString != null) {
                     trace = ((LuaException)inner).tracebackString;
-
-                    // Replace the first occurence of CLR_STACKTRACE_PLACEHOLDER in the traceback with the stacktrace
-                    // of the inner exception
-                    int pos = trace.IndexOf(CLR_STACKTRACE_PLACEHOLDER, StringComparison.InvariantCulture);
-                    if (pos >= 0) {
-                        var stacktrace_fragment = inner.StackTrace.Replace("  at", "[clr]:");
-                        trace = trace.Substring(0, pos) + stacktrace_fragment + trace.Substring(pos + CLR_STACKTRACE_PLACEHOLDER.Length);;
-                    }
+                } else {
+                    PushTraceback(state, runtime.ExceptionMode == LuaExceptionMode.SingleSpliced);
+                    trace = LuaApi.lua_tostring(state, -1);
+                    LuaApi.lua_remove(state, -1);
                 }
+
+                // Replace the first occurence of CLR_STACKTRACE_PLACEHOLDER in the traceback with the stacktrace
+                // of the inner exception
+                int pos = trace.IndexOf(CLR_STACKTRACE_PLACEHOLDER, StringComparison.InvariantCulture);
+                if (pos >= 0) {
+                    var stacktrace_fragment = inner.StackTrace.Replace("  at", "[clr]:");
+                    trace = trace.Substring(0, pos) + stacktrace_fragment + trace.Substring(pos + CLR_STACKTRACE_PLACEHOLDER.Length); ;
+                }
+
                 ((LuaException)inner).tracebackString = trace;
                 runtime.PushCustomClrObject(new LuaTransparentClrObject(inner));
             } else {
@@ -787,8 +787,8 @@ namespace Eluant
                 trace = LuaApi.lua_tostring(state, -1);
                 LuaApi.lua_remove(state, -1);
 
-                int pos = trace.IndexOf(CLR_STACKTRACE_NONLUA_PLACEHOLDER, StringComparison.InvariantCulture);
-                if (pos >= 0) {
+                int pos = trace.IndexOf(CLR_STACKTRACE_PLACEHOLDER, StringComparison.InvariantCulture);
+                if (pos >= 0 && inner != null) {
                     string stacktrace_fragment = "";
                     // small optimization - avoid using the StringBuilder
                     // stuff if we're only dealing with an inner exception
@@ -817,7 +817,7 @@ namespace Eluant
                     } else {
                         stacktrace_fragment = inner.StackTrace.Replace("  at", "[clr]:");
                     }
-                    trace = trace.Substring(0, pos) + stacktrace_fragment + trace.Substring(pos + CLR_STACKTRACE_NONLUA_PLACEHOLDER.Length);
+                    trace = trace.Substring(0, pos) + stacktrace_fragment + trace.Substring(pos + CLR_STACKTRACE_PLACEHOLDER.Length);
                 }
                 var ex = new LuaException(error_msg, runtime.ExceptionMode == LuaExceptionMode.SingleSpliced ? null : inner, value, trace);
                 runtime.PushCustomClrObject(new LuaTransparentClrObject(ex));
@@ -1471,6 +1471,7 @@ namespace Eluant
                 //
                 // For numeric types will try to be smart and convert the argument, if possible.
                 var parms = wrapper.Method.GetParameters();
+
                 object[] args;
 
                 LuaValue wrapped;
@@ -1541,6 +1542,12 @@ namespace Eluant
                                 break;
 
                             case LuaApi.LuaType.Number:
+                                if (ptype.IsEnum) {
+                                    var num = LuaApi.lua_tonumber(state, i + 1);
+                                    args [i] = Convert.ChangeType(num, Enum.GetUnderlyingType(ptype));
+                                    break;
+                                }
+
                                 try {
                                     args[i] = Convert.ChangeType(LuaApi.lua_tonumber(state, i + 1), ptype);
                                 } catch {
@@ -1646,7 +1653,6 @@ namespace Eluant
 
                     return retVararg.Count + 1;
                 }
-
                 var retValue = AsLuaValue(ret);
                 if (retValue == null) {
                     throw new LuaException(string.Format("Unable to convert object of type {0} to Lua value.",
@@ -1710,6 +1716,11 @@ namespace Eluant
             var str = obj as string;
             if (str != null) {
                 return (LuaString)str;
+            }
+
+            var type = obj as Type;
+            if (type != null) {
+                return new LuaClrTypeObject(type);
             }
 
             try {

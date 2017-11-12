@@ -160,6 +160,62 @@ namespace Eluant.Tests
         }
 
         [Test]
+        public void ClrEnums()
+        {
+            using (var runtime = new LuaRuntime()) {
+                using (var func = runtime.CreateFunctionFromDelegate(new Func<Type>(() => typeof(string)))) {
+                    runtime.Globals ["get_string_type"] = func;
+                }
+
+                runtime.Globals ["StringComparison"] = new LuaClrTypeObject(typeof(StringComparison));
+
+                runtime.DoString(@"
+                    local string = get_string_type()
+                    if not string.Equals('Hello!', 'Hello!', StringComparison.InvariantCulture) then
+                        error('Strings aren\'t equal?')
+                    end
+                ").Dispose();
+            }
+        }
+
+        class Something {
+            public static int TheAnswer {
+                get { return 42; }
+            }
+
+            public new static string ToString() {
+                return "Hi";
+            }
+
+            public int A = 1;
+            public int B = 2;
+            public int C = 4;
+
+            public string Test()
+            {
+                return "Hello, world!";
+            }
+
+            public override string ToString()
+            {
+                return $"A {A} B {B} C {C}";
+            }
+        }
+
+        [Test]
+        public void Xdef()
+        {
+            using (var runtime = new LuaRuntime()) {
+                var inst = new Something();
+                runtime.Globals ["something"] = new LuaTransparentClrObject(inst, autobind: true);
+
+                using (var result = runtime.DoString(@"return something.GetType().TheAnswer")) {
+                    Assert.AreEqual(result [0].ToNumber(), 42);
+                }
+            }
+        }
+
+        [Test]
         [ExpectedException(typeof(InvalidOperationException), ExpectedMessage = "Can't convert table to CLR array of System.String: Element at index 3 is a LuaNumber which is convertible to System.Double", MatchType = MessageMatch.Exact)]
         public void LuaArrayConvertionError()
         {

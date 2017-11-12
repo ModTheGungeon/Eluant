@@ -47,8 +47,6 @@ namespace Eluant.ObjectBinding
 
         private static readonly MemberInfo[] noMembers = new MemberInfo[0];
 
-        public BasicLuaBinder() { }
-
         private static MemberNameMap GetMembersByName(Type type)
         {
             var membersByName = new MemberNameMap();

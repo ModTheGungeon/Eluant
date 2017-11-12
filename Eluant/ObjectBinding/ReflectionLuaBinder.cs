@@ -37,14 +37,17 @@ namespace Eluant.ObjectBinding
     public class ReflectionLuaBinder : ILuaBinder
     {
         private static readonly ReflectionLuaBinder instance = new ReflectionLuaBinder();
-        public BindingFlags BindingFlags;
-        private bool ObjectAsType = false;
 
         public static ReflectionLuaBinder Instance {
             get { return instance; }
         }
 
-        private static Dictionary<Type, MemberNameMap> memberNameCache = new Dictionary<Type, MemberNameMap>();
+
+        public BindingFlags BindingFlags;
+        private bool ObjectAsType = false;
+
+
+        private static Dictionary<Tuple<Type, BindingFlags>, MemberNameMap> memberNameCache = new Dictionary<Tuple<Type, BindingFlags>, MemberNameMap>();
 
         private static readonly MemberInfo [] noMembers = new MemberInfo [0];
 
@@ -63,9 +66,9 @@ namespace Eluant.ObjectBinding
                     continue;
                 }
 
-                var memberName = member.Name;
                 membersByName [member.Name] = new List<MemberInfo> { member };
             }
+
 
             return membersByName;
         }
@@ -88,9 +91,10 @@ namespace Eluant.ObjectBinding
             MemberNameMap memberNameMap;
 
             lock (memberNameCache) {
-                if (!memberNameCache.TryGetValue(type, out memberNameMap)) {
+                var tup = Tuple.New(type, BindingFlags);
+                if (!memberNameCache.TryGetValue(tup, out memberNameMap)) {
                     memberNameMap = GetMembersByName(type, BindingFlags);
-                    memberNameCache [type] = memberNameMap;
+                    memberNameCache [tup] = memberNameMap;
                 }
             }
 

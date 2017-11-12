@@ -78,6 +78,7 @@
     <Compile Include="NET40Shim\ConcurrentQueue.cs" />
     <Compile Include="ObjectBinding\ReflectionLuaBinder.cs" />
     <Compile Include="LuaClrTypeObject.cs" />
+    <Compile Include="NET40Shim\Tuple.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
   <ItemGroup>

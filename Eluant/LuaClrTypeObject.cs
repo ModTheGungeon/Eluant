@@ -133,8 +133,10 @@ namespace Eluant
             {
                 var key = KeyToString(keyValue);
 
+                var l = clrObject.Binder.GetMembersByName(type, key).ToList();
+
                 if (key != null) {
-                    return clrObject.Binder.GetMembersByName(clrObject.ClrObject, key)
+                    return clrObject.Binder.GetMembersByName(type, key)
                                     .Where(i => clrObject.BindingSecurityPolicy.GetMemberSecurityPolicy(i) == MemberSecurityPolicy.Permit)
                             .ToList();
                 }
@@ -151,8 +153,9 @@ namespace Eluant
                     if (members.Count == 1) {
                         var method = members [0] as MethodInfo;
                         if (method != null) {
-                            return runtime.CreateFunctionFromMethodWrapper(new LuaRuntime.MethodWrapper(null, method));
+                            return runtime.CreateFunctionFromMethodWrapper(new LuaRuntime.MethodWrapper(type, method));
                         }
+
 
                         var property = members [0] as PropertyInfo;
                         if (property != null) {
@@ -164,13 +167,13 @@ namespace Eluant
                                 throw new LuaException("Cannot get an indexer.");
                             }
 
-                            var ret = property.GetValue(null, null);
+                            var ret = property.GetValue(type, null);
                             return clrObject.Binder.ObjectToLuaValue(ret, clrObject, runtime);
                         }
 
                         var field = members [0] as FieldInfo;
                         if (field != null) {
-                            return clrObject.Binder.ObjectToLuaValue(field.GetValue(null), clrObject, runtime);
+                            return clrObject.Binder.ObjectToLuaValue(field.GetValue(type), clrObject, runtime);
                         }
                     }
 

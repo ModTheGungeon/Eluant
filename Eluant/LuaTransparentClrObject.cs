@@ -34,21 +34,27 @@ namespace Eluant
 {
     public class LuaTransparentClrObject : LuaClrObjectValue, IEquatable<LuaTransparentClrObject>, IBindingContext
     {
-        private static readonly IBindingSecurityPolicy defaultSecurityPolicy = new BasicBindingSecurityPolicy(MemberSecurityPolicy.Deny);
+        private static readonly IBindingSecurityPolicy defaultBasicBindingSecurityPolicy = new BasicBindingSecurityPolicy(MemberSecurityPolicy.Deny);
+        private static readonly IBindingSecurityPolicy defaultReflectionBindingSecurityPolicy = new BasicBindingSecurityPolicy(MemberSecurityPolicy.Permit);
 
         public IBindingSecurityPolicy BindingSecurityPolicy { get; private set; }
         public ILuaBinder Binder { get; private set; }
 
         private TransparentClrObjectProxy proxy;
 
-        public LuaTransparentClrObject(object obj) : this(obj, null, null) { }
-
-        public LuaTransparentClrObject(object obj, ILuaBinder binder, IBindingSecurityPolicy bindingSecurityPolicy) : base(obj)
+        public LuaTransparentClrObject(object obj, ILuaBinder binder = null, IBindingSecurityPolicy bindingSecurityPolicy = null) : base(obj)
         {
             Binder = binder ?? BasicLuaBinder.Instance;
-            BindingSecurityPolicy = bindingSecurityPolicy ?? defaultSecurityPolicy;
+            BindingSecurityPolicy = bindingSecurityPolicy ?? defaultBasicBindingSecurityPolicy;
 
             proxy = new TransparentClrObjectProxy(this);
+        }
+
+        public LuaTransparentClrObject(object obj, bool autobind, IBindingSecurityPolicy bindingSecurityPolicy = null) : this(obj, BasicLuaBinder.Instance) {
+            if (autobind) {
+                Binder = ReflectionLuaBinder.Instance;
+                BindingSecurityPolicy = bindingSecurityPolicy ?? defaultReflectionBindingSecurityPolicy;
+            }
         }
 
         internal override void Push(LuaRuntime runtime)

@@ -37,6 +37,7 @@ namespace Eluant
         private int tracebackHashCode;
         private string [] cachedTracebackArray;
         private string cachedTraceback;
+        private string cachedStackTrace;
 
         private string[] getTracebackArray() {
             var traceback = new List<string>();
@@ -48,8 +49,8 @@ namespace Eluant
                 tracebackHashCode = tracebackString.GetHashCode();
             }
 
-            if (StackTrace != null) {
-                var split = StackTrace.Split('\n');
+            if (base.StackTrace != null) {
+                var split = base.StackTrace.Split('\n');
                 foreach (var l in split) {
                     traceback.Add(l.Replace("  at", "[clr]:"));
                 }
@@ -69,8 +70,8 @@ namespace Eluant
                 tracebackHashCode = tracebackString.GetHashCode();
             }
 
-            if (StackTrace != null) {
-                var split = StackTrace.Split('\n');
+            if (base.StackTrace != null) {
+                var split = base.StackTrace.Split('\n');
                 foreach (var l in split) {
                     s.AppendLine(l.Replace("  at", "[clr]:"));
                 }
@@ -81,8 +82,7 @@ namespace Eluant
 
         public string[] TracebackArray {
             get {
-                if (tracebackString == null) return null;
-                if (tracebackString.GetHashCode() == tracebackHashCode) {
+                if (tracebackString?.GetHashCode() == tracebackHashCode) {
                     return cachedTracebackArray;
                 } else {
                     return getTracebackArray();
@@ -92,8 +92,7 @@ namespace Eluant
 
         public string Traceback {
             get {
-                if (tracebackString == null) return null;
-                if (tracebackString.GetHashCode() == tracebackHashCode) {
+                if (tracebackString?.GetHashCode() == tracebackHashCode) {
                     return cachedTraceback;
                 } else {
                     return getTraceback();
@@ -106,7 +105,7 @@ namespace Eluant
 
         public LuaException(string message, Exception inner, LuaValue value = null, string traceback = null) : base(value?.ToString() ?? message, inner) {
             tracebackString = traceback;
-            tracebackHashCode = 0;
+            tracebackHashCode = -1;
             Value = value;
         }
 
@@ -120,6 +119,17 @@ namespace Eluant
                 s.Append("  ").AppendLine(TracebackArray [i]);
             }
             return s.ToString();
+        }
+
+        public override string StackTrace {
+            get {
+                var s = new StringBuilder();
+                for (int i = 0; i < TracebackArray.Length; i++) {
+                    s.Append("  ").Append(TracebackArray [i]);
+                    if (i != TracebackArray.Length - 1) s.AppendLine();
+                }
+                return s.ToString();
+            }
         }
     }
 }
