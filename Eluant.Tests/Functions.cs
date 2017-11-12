@@ -201,6 +201,11 @@ namespace Eluant.Tests
                 C = c;
             }
 
+            public Something GetMe()
+            {
+                return this;
+            }
+
             public string Test()
             {
                 return "Hello, world!";
@@ -334,6 +339,19 @@ namespace Eluant.Tests
 
                 using (var result = runtime.DoString(@"return something:GetType().TheAnswer")) {
                     Assert.AreEqual(result [0].ToNumber(), 42);
+                }
+            }
+        }
+
+        [Test]
+        public void ClrObjectReturn()
+        {
+            using (var runtime = new LuaRuntime()) {
+                var inst = new Something();
+                runtime.Globals ["something"] = new LuaTransparentClrObject(inst, autobind: true);
+
+                using (var result = runtime.DoString(@"return something:GetMe()")) {
+                    Assert.AreEqual("[LuaClrObjectReference ClrObject:A 1 B 2 C 4]", result [0].ToString());
                 }
             }
         }

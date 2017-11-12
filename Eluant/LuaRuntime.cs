@@ -1921,6 +1921,12 @@ namespace Eluant
                 return (LuaNumber)(double)Convert.ChangeType(obj, typeof(double));
             } catch { }
 
+
+            try {
+                return new LuaTransparentClrObject(obj, autobind: true);
+            } catch { }
+
+
             return null;
         }
 
