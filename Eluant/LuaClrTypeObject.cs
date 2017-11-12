@@ -187,7 +187,7 @@ namespace Eluant
                 var inst = Activator.CreateInstance(type, args: ary);
                 arguments.Dispose();
 
-                return new LuaVararg(new LuaValue [] { new LuaTransparentClrObject(inst) }, false);
+                return new LuaVararg(new LuaValue [] { new LuaTransparentClrObject(inst, autobind: true) }, false);
             }
 
             #endregion
