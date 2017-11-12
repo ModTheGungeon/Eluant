@@ -38,6 +38,14 @@ namespace Eluant
         // LuaValueType types to completely omit the finalizer with a no-op Dispose() implementation.
         public abstract void Dispose();
 
+        public void SetMetatable(LuaRuntime runtime, LuaTable mt) {
+            runtime.SetMetatable(mt, this);
+        }
+
+        public LuaTable GetMetatable(LuaRuntime runtime) {
+            return runtime.GetMetatable(this);
+        }
+
         public abstract Type CLRMappedType { get; }
         public abstract object CLRMappedObject { get; }
 

@@ -1093,6 +1093,29 @@ namespace Eluant
             return fn(state);
         }
 
+        internal void SetMetatable(LuaTable mt, LuaValue val) {
+            Push(val);
+            Push(mt);
+            if (LuaApi.lua_setmetatable(LuaState, -2) == 0) {
+                throw new LuaException("Couldn't set metatable");
+            }
+            LuaApi.lua_pop(LuaState, 1);
+        }
+
+        internal LuaTable GetMetatable(LuaValue val) {
+            Push(val);
+            if (LuaApi.lua_getmetatable(LuaState, -1) == 0) {
+                // invalid index or no metatable
+                // we don't error and instead return null
+                // so that it's possible to detect when there is no metatable easily
+
+                return null;
+            }
+            var tab = Wrap(-1) as LuaTable;
+            LuaApi.lua_pop(LuaState, -1);
+            return tab;
+        }
+
         internal void PushOpaqueClrObject(LuaOpaqueClrObject obj)
         {
             // We don't check for null, intentionally.

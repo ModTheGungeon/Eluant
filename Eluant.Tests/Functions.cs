@@ -246,6 +246,41 @@ namespace Eluant.Tests
         }
 
         [Test]
+        public void Metatables()
+        {
+            using (var runtime = new LuaRuntime()) {
+                using (var tab = runtime.CreateTable()) {
+                    using (var mt = runtime.CreateTable()) {
+                        Func<LuaTable, string, LuaValue> index = (self, key) => {
+                            return "hey";
+                        };
+                        using (var func = runtime.CreateFunctionFromDelegate(index)) {
+                            mt ["__index"] = func;
+                        }
+
+                        tab.Metatable = mt;
+                    }
+
+                    runtime.Globals ["test"] = tab;
+
+                    using (var mt = tab.Metatable) {
+                        using (var index = mt ["__index"]) {
+                            Assert.IsInstanceOf(typeof(LuaFunction), index);
+                        }
+                        Assert.AreEqual(1, mt.Count);
+
+
+                    }
+                }
+
+                using (var ret = runtime.DoString("return test.this_key_doesnt_exist")) {
+                    Assert.AreEqual(1, ret.Count);
+                    Assert.AreEqual("hey", ret [0].ToString());
+                }
+            }
+        }
+
+        [Test]
         public void AutoboundObjects()
         {
             using (var runtime = new LuaRuntime()) {

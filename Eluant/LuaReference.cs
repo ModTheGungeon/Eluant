@@ -34,6 +34,11 @@ namespace Eluant
 
         internal int Reference { get; private set; }
 
+        public LuaTable Metatable {
+            get { return GetMetatable(Runtime); }
+            set { SetMetatable(Runtime, value); }
+        }
+
         internal LuaReference(LuaRuntime runtime, int reference)
         {
             if (runtime == null) { throw new ArgumentNullException("runtime"); }
