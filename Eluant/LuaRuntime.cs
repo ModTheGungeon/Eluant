@@ -569,7 +569,7 @@ namespace Eluant
             PushPcallMessageHandler();
             LoadString(str, chunk_name: chunk_name);
             // Compiled code is on the stack, now call it.
-            var res = Call(new LuaValue[0]);
+            var res = Call(LuaValue.EmptyArray);
             return res;
         }
 
@@ -586,6 +586,43 @@ namespace Eluant
             LuaApi.lua_pop(LuaState, 1);
 
             return (LuaFunction)fn;
+        }
+
+        private void LoadFile(string path) {
+            if (LuaApi.luaL_loadfile(LuaState, path) != 0) {
+                var error = LuaApi.lua_tostring(LuaState, -1);
+                LuaApi.lua_pop(LuaState, 1);
+
+                throw new LuaException(error);
+            }
+        }
+
+        public LuaFunction CompileFile(string path) {
+            if (path == null) { throw new ArgumentNullException("path"); }
+
+            CheckDisposed();
+
+            LoadFile(path);
+
+            var fn = Wrap(-1);
+
+            LuaApi.lua_pop(LuaState, 1);
+
+            return (LuaFunction)fn;
+        }
+
+        public LuaVararg DoFile(string path)
+        {
+            if (path == null) { throw new ArgumentNullException(path); }
+
+            CheckDisposed();
+
+            PushPcallMessageHandler();
+            LoadFile(path);
+
+            // Compiled code is on the stack, now call it.
+            var res = Call(LuaValue.EmptyArray);
+            return res;
         }
 
         internal LuaVararg Call(LuaFunction fn, IList<LuaValue> args)

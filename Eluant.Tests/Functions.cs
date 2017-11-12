@@ -25,6 +25,7 @@
 // THE SOFTWARE.
 
 using System;
+using System.IO;
 using System.Linq;
 using NUnit.Framework;
 
@@ -183,10 +184,6 @@ namespace Eluant.Tests
                 get { return 42; }
             }
 
-            public new static string ToString() {
-                return "Hi";
-            }
-
             public int A = 1;
             public int B = 2;
             public int C = 4;
@@ -203,7 +200,34 @@ namespace Eluant.Tests
         }
 
         [Test]
-        public void Xdef()
+        public void RunningFile()
+        {
+            var path = System.IO.Path.GetTempPath() + Guid.NewGuid().ToString() + ".lua";
+            using (var file = File.OpenWrite(path)) {
+                using (var writer = new StreamWriter(file)) {
+                    writer.Write(@"
+                        return 'Hello, world!'
+                    ");
+                }
+            }
+
+            using (var runtime = new LuaRuntime()) {
+                using (var result = runtime.DoFile(path)) {
+                    using (var func = runtime.CompileFile(path)) {
+                        using (var result2 = func.Call()) {
+                            Assert.AreEqual(result.Count, 1);
+                            Assert.AreEqual(result2.Count, 1);
+                            Assert.AreEqual(result[0], result2[0]);
+                        }
+                    }
+                }
+            }
+
+            File.Delete(path);
+        }
+
+        [Test]
+        public void AutoboundObjects()
         {
             using (var runtime = new LuaRuntime()) {
                 var inst = new Something();

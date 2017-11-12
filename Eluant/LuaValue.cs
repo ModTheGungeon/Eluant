@@ -32,6 +32,8 @@ namespace Eluant
     {
         internal LuaValue() { }
 
+        public static LuaValue[] EmptyArray = new LuaValue[0];
+
         // Don't implement the full disposable pattern, but require sub-types to implement it.  For example, this allows
         // LuaValueType types to completely omit the finalizer with a no-op Dispose() implementation.
         public abstract void Dispose();
