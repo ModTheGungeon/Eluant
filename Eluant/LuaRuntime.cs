@@ -264,6 +264,7 @@ namespace Eluant
             metamethodCallbacks["__newindex"] = CreateCallbackWrapper(NewindexCallback);
             metamethodCallbacks["__index"] = CreateCallbackWrapper(IndexCallback);
             metamethodCallbacks["__tostring"] = CreateCallbackWrapper(ToStringCallback);
+            metamethodCallbacks ["__call"] = CreateCallbackWrapper(CallCallback);
             
             metamethodCallbacks["__add"] = CreateCallbackWrapper(state => BinaryOperatorCallback<ILuaAdditionBinding>(state, (i, a, b) => i.Add(this, a, b)));
             metamethodCallbacks["__sub"] = CreateCallbackWrapper(state => BinaryOperatorCallback<ILuaSubtractionBinding>(state, (i, a, b) => i.Subtract(this, a, b)));
@@ -1296,16 +1297,17 @@ namespace Eluant
                 }
 
                 var nargs = LuaApi.lua_gettop(LuaState) - 1;
-                var args = new LuaValue[nargs];
+                var self = Wrap(-1);
+                var args = new LuaValue[nargs - 1];
 
-                for (int i = 0; i < nargs; ++i) {
+                for (int i = 0; i < nargs - 1; ++i) {
                     args[i] = Wrap(i + 2);
                     toDispose.Add(args[i]);
                 }
 
                 var vararg = new LuaVararg(args, true);
 
-                var results = obj.Call(this, vararg);
+                var results = obj.Call(this, self, vararg);
                 toDispose.Add(results);
 
                 if (LuaApi.lua_checkstack(LuaState, 1 + results.Count) == 0) {

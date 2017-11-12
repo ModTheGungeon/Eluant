@@ -188,6 +188,18 @@ namespace Eluant.Tests
             public int B = 2;
             public int C = 4;
 
+            public Something() {}
+
+            public Something(int x) {
+                A = B = C = x;
+            }
+
+            public Something(int a, int b, int c) {
+                A = a;
+                B = b;
+                C = c;
+            }
+
             public string Test()
             {
                 return "Hello, world!";
@@ -196,6 +208,38 @@ namespace Eluant.Tests
             public override string ToString()
             {
                 return $"A {A} B {B} C {C}";
+            }
+        }
+
+        [Test]
+        public void InstantiatingClasses()
+        {
+            using (var runtime = new LuaRuntime()) {
+                runtime.InitializeClrPackage();
+                var results = runtime.DoString(@"
+                    local ass = clr.assembly('Eluant.Tests')
+                    local Something = clr.type(ass, 'Eluant.Tests.Functions/Something')
+                    local a = Something(100, 200, 300)
+                    local b = Something(10)
+
+                    return a, b
+                ");
+                using (results) {
+                    Assert.AreEqual(2, results.Count);
+                    Assert.IsInstanceOf(typeof(Something), results [0].CLRMappedObject);
+                    Assert.IsInstanceOf(typeof(Something), results [1].CLRMappedObject);
+
+                    var a = results [0].CLRMappedObject as Something;
+                    var b = results [1].CLRMappedObject as Something;
+
+                    Assert.AreEqual(100, a.A);
+                    Assert.AreEqual(200, a.B);
+                    Assert.AreEqual(300, a.C);
+
+                    Assert.AreEqual(10, b.A);
+                    Assert.AreEqual(10, b.B);
+                    Assert.AreEqual(10, b.C);
+                }
             }
         }
 

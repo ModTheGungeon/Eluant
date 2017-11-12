@@ -70,7 +70,7 @@ namespace Eluant
             get { return proxy; }
         }
 
-        private class LuaClrTypeObjectProxy : ILuaTableBinding, ILuaEqualityBinding, ILuaToStringBinding
+        private class LuaClrTypeObjectProxy : ILuaTableBinding, ILuaEqualityBinding, ILuaToStringBinding, ILuaCallBinding
         {
             private Type type;
             private LuaClrTypeObject clrObject;
@@ -144,6 +144,53 @@ namespace Eluant
 
                 return new List<MemberInfo>();
             }
+
+            #region ILuaCallBinding implementation
+
+            public LuaVararg Call(LuaRuntime runtime, LuaValue self, LuaVararg arguments)
+            {
+                var constructors = type.GetConstructors();
+                var found_ctor = false;
+                object [] ary = null;
+
+                for (int i = 0; i < constructors.Length; i++) {
+                    var ctor = constructors [i];
+                    var parms = ctor.GetParameters();
+
+                    if (parms.Length != arguments.Count) continue;
+
+                    ary = new object [arguments.Count];
+                    for (int j = 0; j < parms.Length; j++) {
+                        var parm = parms [j];
+
+
+                        try {
+                            ary [j] = Convert.ChangeType(arguments[j], parm.ParameterType);
+                        } catch {
+                            try {
+                                ary [j] = Convert.ChangeType(arguments[j].CLRMappedObject, parm.ParameterType);
+                            } catch {
+                                goto next_ctor;
+                            }
+                        }
+                    }
+
+                    found_ctor = true;
+
+                    next_ctor:;
+                }
+
+                if (!found_ctor) {
+                    throw new LuaException($"The type {type.FullName} does not have a matching constructor.");
+                }
+
+                var inst = Activator.CreateInstance(type, args: ary);
+                arguments.Dispose();
+
+                return new LuaVararg(new LuaValue [] { new LuaTransparentClrObject(inst) }, false);
+            }
+
+            #endregion
 
             #region ILuaTableBinding implementation
 

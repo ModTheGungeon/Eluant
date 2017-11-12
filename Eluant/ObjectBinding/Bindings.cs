@@ -116,7 +116,7 @@ namespace Eluant.ObjectBinding
     [Metamethod("__call")]
     public interface ILuaCallBinding
     {
-        LuaVararg Call(LuaRuntime runtime, LuaVararg arguments);
+        LuaVararg Call(LuaRuntime runtime, LuaValue self, LuaVararg arguments);
     }
 
     [Metamethod("__tostring")]
