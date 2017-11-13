@@ -1,7 +1,9 @@
-Eluant
+Eluant (Mod the Gungeon fork)
 ======
 
 Eluant is a set of bindings that exposes Lua to the Common Language Runtime for consumption by managed languages like C#, VB.Net, and F#.
+
+This is a fork of Eluant which brings many improvements and changes. It was made to be used in [ETGMod](https://github.com/modthegungeon/etgmod), but it will work very well in any other project requiring Lua bindings. Note: Some information in this readme might be outdated, as I might have overlooked it while updating this file.
 
 Motivation
 ----------
@@ -11,6 +13,8 @@ Eluant has a strong focus on proper memory management, as many existing Lua-to-C
 Further, exsiting bindings tend to call `lua_error()` to trigger errors, which causes a longjmp.  This action can corrupt information that the CLR has regarding the stack, and skips over `finally` blocks!  Eluant tries very hard to make sure that Lua errors are not raised in or across CLR stack frames.
 
 It is also a goal that Eluant should work with an unmodified build of the Lua C library.
+
+This fork of Eluant even has LuaJIT support that can be toggled by just defining the `ELUANT_LUAJIT` symbol.
 
 Quick Start
 ===========
@@ -42,7 +46,7 @@ Output:
 
     16
 
-Lua Wrapper Class Heirarchy
+Lua Wrapper Class Hierarchy
 ===========================
 
 To facilitate using Lua values in the CLR, there are a series of classes that mimic Lua types at a conceptual level.  `LuaValue` is the root of this heirarchy.
@@ -60,6 +64,8 @@ To facilitate using Lua values in the CLR, there are a series of classes that mi
             + LuaClrObjectValue
                 + LuaCustomClrObject
                 + LuaOpaqueClrObject
+                + LuaTransparentClrObject
+                + LuaClrTypeObject
             + LuaNil
             + LuaNumber
             + LuaString
@@ -143,7 +149,9 @@ Weak references can be passed to Lua functions or returned from delegates, as wi
 Lua References to CLR Objects
 -----------------------------
 
-Eluant does not (yet) support transparent interoperation between Lua and the CLR.  The only mechanism currently provided is the `LuaOpaqueClrObject` type, which wraps a CLR object in an opaque Lua object.  Lua cannot invoke methods or properties of the target object, nor read its fields.  It is, however, able to pass such an object to a CLR delegate, where it will be unwrapped by Eluant into the target CLR object.
+Eluant supports transparent interoperation between Lua and the CLR, through the use of `LuaTransparentClrObject` and `LuaClrTypeObject`. You can use `LuaTransparentClrObject`s to create a CLR object fully accessible from Lua - this includes getting and setting fields, getting and setting properties, calling methods etc. `LuaClrTypeObject` can be used to pass static type references to Lua so that one can call static CLR methods from it too.
+
+`LuaTransparentClrObject`'s constructor can be fed an `autobind: true` option (or an instance of the `ReflectionLuaBinder`) that allow it to work even on objects that don't have specified Lua mappings through Eluant attributes.
 
 Eluant will ensure that CLR objects referenced by Lua are not collected by the CLR garbage collector for as long as Lua has a reference to the object.  This mechanism is also used when wrapping CLR delegate objects as Lua functions, so the delegate object is guaranteed to exist for as long as the corresponding Lua function object exists.
 
@@ -218,7 +226,7 @@ In both cases, Eluant will dispose of any Lua references passed to the delegate 
 Exposing CLR Objects to Lua
 ===========================
 
-There are three distinct ways that CLR objects can be presented to Lua.
+There are four distinct ways that CLR objects can be presented to Lua.
 
 All CLR objects exposed to Lua through any of these mechanisms will kept alive with a strong reference in the CLR automatically.  This reference is released when the Lua garbage collector finalizes the corresponding Lua value.
 
@@ -275,7 +283,7 @@ An attempt to access a member that does not exist on the CLR object will result 
 
 There are some rules regarding which members can be accessed from Lua code.
 
-* Only public members marked with `LuaMemberAttribute` can be accessed.
+* Only public members marked with `LuaMemberAttribute` can be accessed, unless `autobind` in the constructor is passed as `true`, in which case all public members can be accessed.
 * Indexers cannot be accessed.  Lua syntax does not distinguish between member and index look-up, as both are equivalent.  (`x.y` means the same thing as `x['y']`.)  In particular, if the CLR object defines an indexer taking one string argument, every member access from the Lua side has the potential to be ambiguous, and there is no clear way that ambiguity can be resolved.
 * Open generic methods cannot be accessed.  For arguments of a generic type, there may be multiple options for a given Lua value.  (Should a string be passed as `LuaString` or `String`, for example?)  If the only reference to a generic type is the return value, Lua has no syntax for expressing what that type should be.  (Closed generic methods -- methods of a generic type that are not themselves generic -- are acceptable as their argument and return types are fully known.)
 * Methods cannot be overloaded.  This restriction may be removed in a future release, once a set of overload-resolution rules is determined.  To provide the illusion of an overloaded method, declare the method to accept `LuaVararg` and inspect the arguments.
@@ -286,7 +294,31 @@ Because functions are first-class values in Lua, when the Lua code `x.y()` is ex
 
 All of the same rules in the section "Exposing CLR Functions to Lua" also apply to Lua functions representing methods of CLR objects including argument handling, return value handling, and exception handling.
 
-Note that one can implement a custom `ILuaBinder`, which allows you to alter the logic used to map member names to members, and the logic used to convert CLR values and objects to Lua values.  A custom `IBindingSecurityPolicy` will let you customize the logic for determining which members should be Lua-accessible.  (The default security policy denies access to all members not marked with `LuaMemberAttribute`.)
+Note that one can implement a custom `ILuaBinder`, which allows you to alter the logic used to map member names to members, and the logic used to convert CLR values and objects to Lua values.  A custom `IBindingSecurityPolicy` will let you customize the logic for determining which members should be Lua-accessible.  (The default security policy denies access to all members not marked with `LuaMemberAttribute` when `autobind` is `true` and permits access to all members when `autobind` is  `false`.)
+
+CLR Type Objects
+-----------------------
+This is a special Lua object that can be used for accessing static fields, properties and methods from Lua. Its constructor takes a `Type` instance. When passed to Lua, it acts as any other userdata, but instead of accessing members on an instance it accesses static members from the provided `Type`.
+CLR Type Objects can be instantiated inside using a syntax similiar to calling functions (by simply calling the object as if was a function).
+
+CLR Package
+-----------------------
+To aid in binding, there is an optional CLR package that can be loaded into the environment at any time, and comes with a couple of useful functions usable from Lua. To initialize this package, just run the `InitializeClrPackage` method on a LuaRuntime.
+
+The contents of the package will be available in the `clr` global, and here they are:
+
+* `clr.assembly(string name) -> Assembly`
+  returns an instance of the Assembly CLR object with the provided name
+* `clr.namespace(Assembly asm, string name) -> table`
+  returns a table filled with the classes inside the namespace `name` in assembly `asm` (note: this table will not contain any sort of objects or references to nested namespaces!)
+* `clr.type(Assembly asm, string name) -> (class)`
+  returns a static class called `name` from the `asm` assembly
+* `clr.metatype((class) type) -> Type`
+  returns the Type object (not a class!) of the class specified by `type`; essentially what `typeof` does in C#
+* `clr.statictype(Type type) -> (class)`
+  returns the class represented by the Type object, the opposite action to `clr.metatype`
+
+More functions might be added to the CLR package in the future.
 
 Coroutine Support
 =================
@@ -315,3 +347,5 @@ Because longjmps over CLR stack frames must be avoided, allocations will never b
 Of course, if Lua is referencing any CLR objects, those object allocations will have been allocated by the CLR and not Lua; they will not be accounted for since Lua did not allocate them.  (Of course, the Lua object that wraps the CLR object will be accounted for.)  Be careful when exposing CLR code to Lua that you don't create a vulnerability by which Lua can allocate an unbounded amount of memory!
 
 When using a memory-constrained runtime, it is more critical than ever that one dispose of CLR references to Lua objects.  If this is not done, then these Lua objects otherwise eligible for collection will have an artificially extended lifetime and will count against the runtime's allocation limit.
+
+**Note:** Due to a LuaJIT artificially imposed limitation, `MemoryConstrainedLuaRuntime` will not work in LuaJIT mode on 64 bit operating systems. It's possible to work around this limitation by modifying LuaJIT code and `MemoryConstrainedLuaRuntime`'s allocation code, but it is not a priority.
