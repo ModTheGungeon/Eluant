@@ -93,6 +93,37 @@ The `IClrObject` interface is provided as a way for code to generically accept a
 
 `LuaWeakReference<T>` implements weak references to Lua objects.  See the section "Weak CLR References to Lua Objects" for details.
 
+Error Reporting
+=================
+
+The MTG fork of Eluant tries its best to have great error reporting. Most of the exception handling code has been reworked to support catching and throwing exceptions between Lua and CLR boundaries multiple times.
+
+That's not the end - `LuaException`s will have, when applicable, Lua tracebacks showing from the bottom to the top what lead to an error. `LuaException`s also have CLR and Lua stack traces **spliced together**, in a way that even if you have a convoluted call stack where you jump between CLR and Lua multiple, it'll still show you exactly what happened.
+Here's an example of a stack trace of a very convoluted test:
+
+```
+Eluant.LuaException: Hello
+  [throw]: exception System.ArgumentOutOfRangeException
+  [clr]: Eluant.LuaRuntime.Call (System.Collections.Generic.IList`1[T] args) [0x00115] in /home/zatherz/Projects/C#/Eluant/Eluant/LuaRuntime.cs:879 
+  [clr]: Eluant.LuaRuntime.DoStringInternal (System.String str, System.String chunk_name) [0x0002c] in /home/zatherz/Projects/C#/Eluant/Eluant/LuaRuntime.cs:577 
+  [clr]: Eluant.LuaRuntime.DoString (System.String str, System.String chunk_name) [0x00036] in /home/zatherz/Projects/C#/Eluant/Eluant/LuaRuntime.cs:565 
+  [clr]: Eluant.Tests.Functions.Error1 (System.Int32 x) [0x00009] in /home/zatherz/Projects/C#/Eluant/Eluant.Tests/Functions.cs:166 
+  [clr]: Eluant.Tests.Functions.Error2 () [0x00002] in /home/zatherz/Projects/C#/Eluant/Eluant.Tests/Functions.cs:172 
+  [throw]: inner exception Eluant.LuaException: [LuaTable]
+  [clr]: Eluant.Tests.Functions.Error2 () [0x0000f] in /home/zatherz/Projects/C#/Eluant/Eluant.Tests/Functions.cs:174 
+  [clr]: Eluant.Tests.Functions.Error3 () [0x0000e] in /home/zatherz/Projects/C#/Eluant/Eluant.Tests/Functions.cs:183 
+  [clr]: Eluant.Tests.Functions.<Test>b__12_0 () [0x00000] in /home/zatherz/Projects/C#/Eluant/Eluant.Tests/Functions.cs:193 
+  [clr]: (wrapper managed-to-native) System.Reflection.MonoMethod:InternalInvoke (System.Reflection.MonoMethod,object,object[],System.Exception&)
+  [clr]: System.Reflection.MonoMethod.Invoke (System.Object obj, System.Reflection.BindingFlags invokeAttr, System.Reflection.Binder binder, System.Object[] parameters, System.Globalization.CultureInfo culture) [0x00032] in /build/mono/src/mono-5.0.0/mcs/class/corlib/System.Reflection/MonoMethod.cs:305 
+  [string "..."]:3: in function <[string "..."]:2>
+  [clr]: Eluant.LuaRuntime.Call (System.Collections.Generic.IList`1[T] args) [0x00115] in /home/zatherz/Projects/C#/Eluant/Eluant/LuaRuntime.cs:879 
+  [clr]: Eluant.LuaRuntime.Call (Eluant.LuaFunction fn, System.Collections.Generic.IList`1[T] args) [0x0003f] in /home/zatherz/Projects/C#/Eluant/Eluant/LuaRuntime.cs:606 
+  [clr]: Eluant.LuaFunction.Call (Eluant.LuaValue[] args) [0x00001] in /home/zatherz/Projects/C#/Eluant/Eluant/LuaFunction.cs:55 
+  [clr]: Eluant.Tests.Functions.Test () [0x00072] in /home/zatherz/Projects/C#/Eluant/Eluant.Tests/Functions.cs:205
+```
+
+You can see a comparison between upstream Eluant, NLua and this fork's error reporting [here](https://zatherz.eu/csharp/eluant-nlua-comparison/).
+
 Memory Management
 =================
 
