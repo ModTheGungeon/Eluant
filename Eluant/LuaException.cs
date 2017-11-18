@@ -32,6 +32,8 @@ namespace Eluant
 {
     public class LuaException : Exception
     {
+        internal string forcedStackTraceISureDoLoveUnitysMono;
+
         internal string tracebackString;
         public LuaValue Value;
         private int tracebackHashCode;
@@ -49,13 +51,12 @@ namespace Eluant
                 tracebackHashCode = tracebackString.GetHashCode();
             }
 
-            if (base.StackTrace != null) {
-                var split = base.StackTrace.Split('\n');
+            if (StackTrace != null) {
+                var split = StackTrace.Split('\n');
                 foreach (var l in split) {
-                    traceback.Add(l.Replace("  at", "[clr]:"));
+                    traceback.Add(l.Replace("at", "[clr]:").Trim());
                 }
             }
-
 
             return cachedTracebackArray = traceback.ToArray();
         }
@@ -123,12 +124,7 @@ namespace Eluant
 
         public override string StackTrace {
             get {
-                var s = new StringBuilder();
-                for (int i = 0; i < TracebackArray.Length; i++) {
-                    s.Append("  ").Append(TracebackArray [i]);
-                    if (i != TracebackArray.Length - 1) s.AppendLine();
-                }
-                return s.ToString();
+                return forcedStackTraceISureDoLoveUnitysMono ?? base.StackTrace;
             }
         }
     }

@@ -97,6 +97,7 @@ namespace Eluant
 
         public LuaExceptionMode ExceptionMode = LuaExceptionMode.SingleSpliced;
         public LuaMethodMode MethodMode = LuaMethodMode.PassSelf;
+        public bool UnityEngineSpecificWorkarounds = false;
 
 
         // The below constants are used for making the tracebacks pretty.
@@ -943,7 +944,13 @@ namespace Eluant
                         if (obj is LuaClrObjectReference) {
                             var clrobj = ((LuaClrObjectReference)obj).ClrObject;
                             if (clrobj is LuaException) {
-                                throw clrobj as LuaException;
+                                // for some reason sometimes the stacktrace in the exception
+                                // won't get updated in unity's mono
+                                var ex = (LuaException)clrobj;
+                                if (UnityEngineSpecificWorkarounds) {
+                                    ex.forcedStackTraceISureDoLoveUnitysMono = new System.Diagnostics.StackTrace().ToString();
+                                }
+                                throw ex;
                             } else if (clrobj is Exception) {
                                 throw new LuaException(((Exception)clrobj).Message, (Exception)clrobj, obj);
                             } else {
