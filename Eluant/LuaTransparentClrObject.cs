@@ -45,7 +45,13 @@ namespace Eluant
         public LuaTransparentClrObject(object obj, ILuaBinder binder = null, IBindingSecurityPolicy bindingSecurityPolicy = null) : base(obj)
         {
             Binder = binder ?? BasicLuaBinder.Instance;
-            BindingSecurityPolicy = bindingSecurityPolicy ?? defaultBasicBindingSecurityPolicy;
+            if (bindingSecurityPolicy == null) {
+                if (Binder is ReflectionLuaBinder) {
+                    BindingSecurityPolicy = defaultReflectionBindingSecurityPolicy;
+                } else {
+                    BindingSecurityPolicy = defaultBasicBindingSecurityPolicy;
+                }
+            } else BindingSecurityPolicy = bindingSecurityPolicy;
 
             proxy = new TransparentClrObjectProxy(this);
         }

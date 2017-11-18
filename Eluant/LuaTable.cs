@@ -119,19 +119,30 @@ namespace Eluant
             return true;
         }
 
-        public object ConvertToArray(Type element_type) {
+        // if element_type is not passed, the type of the first element
+        // in the table will be the element type
+        public object ConvertToArray(Type element_type = null) {
+            string errmsg_extra = null;
+            if (element_type == null) {
+                errmsg_extra = " (type guessed using the first element of the table)";
+            }
+
             int count = 0;
             while (true) {
                 using (var entry = this [count + 1]) {
                     if (entry is LuaNil) break;
 
-                    if (!entry.CLRMappedType.IsAssignableFrom(element_type)) {
-                        throw new InvalidOperationException($"Can't convert table to CLR array of {element_type}: Element at index {count + 1} is a {entry.GetType().Name} which is convertible to {entry.CLRMappedType}");
-                    } else if (entry.CLRMappedType.IsAssignableFrom(typeof(IDisposable))) {
-                        throw new InvalidOperationException($"Can't convert disposable type {entry.CLRMappedType} of entry at index {count + 1} to a CLR array (this is a measure to prevent potential memory leaks)");
+                    if (element_type == null) {
+                        element_type = entry.CLRMappedType;
+                    } else {
+                        if (!entry.CLRMappedType.IsAssignableFrom(element_type)) {
+                            throw new InvalidOperationException($"Can't convert table to CLR array of {element_type}{errmsg_extra}: Element at index {count + 1} is a {entry.GetType().Name} which is convertible to {entry.CLRMappedType}");
+                        } else if (entry.CLRMappedType.IsAssignableFrom(typeof(IDisposable))) {
+                            throw new InvalidOperationException($"Can't convert disposable type {entry.CLRMappedType} of entry at index {count + 1} to a CLR array (this is a measure to prevent potential memory leaks)");
+                        }
                     }
 
-                    else count++;
+                    count++;
                 }
             }
 

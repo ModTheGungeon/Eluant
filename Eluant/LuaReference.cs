@@ -32,6 +32,8 @@ namespace Eluant
     {
         public LuaRuntime Runtime { get; private set; }
 
+        public bool DisposeAfterManagedCall = true;
+
         internal int Reference { get; private set; }
 
         public LuaTable Metatable {

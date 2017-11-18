@@ -1135,6 +1135,11 @@ namespace Eluant
             return new LuaTransparentClrObject(ass);
         }
 
+        public LuaTransparentClrObject ClrUnrestricted(LuaTransparentClrObject obj) {
+            var inner = obj.ClrObject;
+            return new LuaTransparentClrObject(inner, new ReflectionLuaBinder(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance));
+        }
+
         public void InitializeClrPackage() {
             using (var tab = CreateTable()) {
                 Globals ["clr"] = tab;
@@ -1158,6 +1163,10 @@ namespace Eluant
                 using (var func = CreateFunctionFromDelegate(
                     new Func<Assembly, string, LuaClrTypeObject>(ClrType)
                 )) tab ["type"] = func;
+
+                using (var func = CreateFunctionFromDelegate(
+                    new Func<LuaTransparentClrObject, LuaTransparentClrObject>(ClrUnrestricted)
+                )) tab["unrestricted"] = func;
             }
         }
 
@@ -1604,6 +1613,80 @@ namespace Eluant
             }
         }
 
+        public object ToClrObject(LuaValue val, Type target_type) {
+            if (val is LuaNil) return null;
+            if (val is LuaBoolean) {
+                if (!target_type.IsAssignableFrom(typeof(bool))) {
+                    throw new LuaException(string.Format("Expected a {0}, got a bool.", target_type));
+                }
+                return val.ToBoolean();
+            }
+            if (val is LuaFunction) {
+                if (!target_type.IsAssignableFrom(typeof(LuaFunction))) {
+                    throw new LuaException(string.Format("Expected a {0}, got a function.", target_type));
+                }
+                return val;
+            }
+            if (val is LuaLightUserdata) {
+                if (!target_type.IsAssignableFrom(typeof(LuaLightUserdata))) {
+                    throw new LuaException(string.Format("Expected a {0}, got light userdata.", target_type));
+                }
+                return val;
+            }
+            if (val is LuaNumber) {
+                var num = val.ToNumber();
+
+                if (target_type.IsEnum) {
+                    return Convert.ChangeType(num, Enum.GetUnderlyingType(target_type));
+                }
+
+                try {
+                    return Convert.ChangeType(num, target_type);
+                } catch {
+                    throw new LuaException(string.Format("Expected a {0}, got a number.", target_type));
+                }
+            }
+            if (val is LuaString) {
+                if (!target_type.IsAssignableFrom(typeof(string))) {
+                    throw new LuaException(string.Format("Expected a {0}, got a string.", target_type));
+                }
+
+                return val.ToString();
+            }
+            if (val is LuaTable) {
+                if (target_type.IsAssignableFrom(typeof(LuaTable))) {
+                    return val;
+                } else if (target_type.IsArray) {
+                    return ((LuaTable)val).ConvertToArray(target_type.GetElementType());
+                } else {
+                    throw new LuaException(string.Format("Expected a {0}, got a table.", target_type));
+                }
+            }
+            if (val is LuaThread) {
+                if (!target_type.IsAssignableFrom(typeof(LuaThread))) {
+                    throw new LuaException(string.Format("Expected a {0}, got a thread.", target_type));
+                }
+                return val;
+            }
+            if (val is LuaUserdata) {
+                Push(val);
+                try {
+                    LuaClrObjectValue clrObject;
+                    if ((clrObject = TryGetClrObject<LuaClrObjectValue>(-1)) != null) {
+                        return clrObject.ClrObject;
+                    } else if (target_type.IsAssignableFrom(typeof(LuaUserdata))) {
+                        return val;
+                    } else {
+                        throw new LuaException(string.Format("Expected a {0}, got userdata.", target_type));
+                    }
+                } finally {
+                    LuaApi.lua_remove(LuaState, -1);
+                }
+            }
+
+            throw new LuaException(string.Format("Cannot convert Lua type {0} to CLR type {1}.", val.GetType(), target_type));
+        }
+
         private int MakeManagedCall(IntPtr state, MethodWrapper wrapper)
         {
             var toDispose = new List<IDisposable>();
@@ -1789,7 +1872,13 @@ namespace Eluant
                                 // objects then it should take a LuaVararg instead.)
                                 LuaClrObjectValue clrObject;
                                 if ((clrObject = TryGetClrObject<LuaClrObjectValue>(lua_i)) != null) {
-                                    args[i] = clrObject.ClrObject;
+                                    if (ptype.IsAssignableFrom(typeof(LuaClrObjectValue))) {
+                                        args[i] = clrObject;
+                                    } else if (ptype.IsAssignableFrom(typeof(LuaTransparentClrObject))) {
+                                        args[i] = clrObject;
+                                    } else if (ptype.IsAssignableFrom(typeof(LuaClrTypeObject))) {
+                                       args[i] = clrObject;
+                                    } else args[i] = clrObject.ClrObject;
                                 } else if (ptype.IsAssignableFrom(typeof(LuaUserdata))) {
                                     args[i] = wrapped = Wrap(lua_i);
                                     toDispose.Add(wrapped);
@@ -1876,7 +1965,7 @@ namespace Eluant
                 // Dispose whatever we need to.  It's okay to dispose result objects, as that will only release the CLR
                 // reference to them; they will still be alive on the Lua stack.
                 foreach (var o in toDispose) {
-                    if (o != null) {
+                    if (o != null && (!(o is LuaReference) || ((LuaReference)o).DisposeAfterManagedCall)) {
                         o.Dispose();
                     }
                 }
@@ -1925,7 +2014,6 @@ namespace Eluant
             try {
                 return new LuaTransparentClrObject(obj, autobind: true);
             } catch { }
-
 
             return null;
         }
