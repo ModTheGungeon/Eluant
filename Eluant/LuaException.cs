@@ -32,7 +32,7 @@ namespace Eluant
 {
     public class LuaException : Exception
     {
-        internal string forcedStackTraceISureDoLoveUnitysMono;
+        internal string forcedStackTrace;
 
         internal string tracebackString;
         public LuaValue Value;
@@ -124,7 +124,7 @@ namespace Eluant
 
         public override string StackTrace {
             get {
-                return forcedStackTraceISureDoLoveUnitysMono ?? base.StackTrace;
+                return forcedStackTrace ?? base.StackTrace;
             }
         }
     }

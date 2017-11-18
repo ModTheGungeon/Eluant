@@ -97,8 +97,23 @@ namespace Eluant
 
         public LuaExceptionMode ExceptionMode = LuaExceptionMode.SingleSpliced;
         public LuaMethodMode MethodMode = LuaMethodMode.PassSelf;
-        public bool UnityEngineSpecificWorkarounds = false;
 
+        // Old (pre-2015) versions of Mono have an issue where the exception
+        // handling does not exactly mimic .NET.
+        // Those versions of Mono will preserve the stack trace of an exception
+        // when rethrown if the exception already has a stack trace, when the
+        // stack trace of an exception should always point to the last time it
+        // was thrown.
+        // Our nice tracebacks depend on this behavior, and so we
+        // emulate it if MonoStackTraceWorkaround is true (which you should set
+        // if you are using old versions of Mono, for example in Unity).
+        //
+        // You can see the Mono PR that solved this issue here:
+        // https://github.com/mono/mono/pull/1668/commits/f985c6809b976935c0c5031042bb76339cbe5a72
+        //
+        // The exact date is May 12, 2015, so if your Mono build is newer than that,
+        // you shouldn't need this workaround.
+        public bool MonoStackTraceWorkaround = false;
 
         // The below constants are used for making the tracebacks pretty.
         // The line numbers should match BindingSupport.lua.
@@ -944,11 +959,12 @@ namespace Eluant
                         if (obj is LuaClrObjectReference) {
                             var clrobj = ((LuaClrObjectReference)obj).ClrObject;
                             if (clrobj is LuaException) {
-                                // for some reason sometimes the stacktrace in the exception
-                                // won't get updated in unity's mono
                                 var ex = (LuaException)clrobj;
-                                if (UnityEngineSpecificWorkarounds) {
-                                    ex.forcedStackTraceISureDoLoveUnitysMono = new System.Diagnostics.StackTrace().ToString();
+
+                                // Read the comment on MonoStackTraceWorkaround for an
+                                // explanation on why this is necessary
+                                if (MonoStackTraceWorkaround) {
+                                    ex.forcedStackTrace = new System.Diagnostics.StackTrace().ToString();
                                 }
                                 throw ex;
                             } else if (clrobj is Exception) {
